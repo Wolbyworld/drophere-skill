@@ -118,12 +118,27 @@ POST /api/v1/artifact
       "headers": { "Content-Type": "text/html" }
     }
   ],
+  "limits": { "maxFileSize": 10485760, "maxArtifactSize": 26214400 },
   "claimToken": "ct_xyz789..."
 }
 ```
 
 - `uploads` — presigned R2 URLs (10-min TTL). Upload each file with `PUT`.
 - `claimToken` — only returned for anonymous uploads. Store it to update/finalize later.
+
+**Upload size limits:**
+
+|  | Per file | Per artifact (total) |
+|--|---------|---------------------|
+| Anonymous | 10 MB | 25 MB |
+| Authenticated | 50 MB | 200 MB |
+
+Exceeding a limit returns **413** with `error`, `details`, and `limits` fields. The `size` field in each file entry must be the exact byte count — presigned URLs are locked to that size.
+
+Limits are also returned in the response body so clients can pre-validate:
+```json
+{ "limits": { "maxFileSize": 10485760, "maxArtifactSize": 26214400 } }
+```
 
 **Rate limits:**
 - Authenticated: 60 creates per hour
@@ -166,7 +181,8 @@ PUT /api/v1/artifact/:slug
   ],
   "skipped": [
     { "path": "style.css", "hash": "sha256:def..." }
-  ]
+  ],
+  "limits": { "maxFileSize": 52428800, "maxArtifactSize": 209715200 }
 }
 ```
 
@@ -178,6 +194,7 @@ PUT /api/v1/artifact/:slug
 | 403 | Invalid or missing claim token / You do not own this artifact |
 | 404 | Artifact not found |
 | 410 | Artifact has expired |
+| 413 | File or total artifact size exceeds limit |
 
 ### Finalize Artifact
 
@@ -626,6 +643,7 @@ All errors follow a consistent format:
 | 404 | Resource not found |
 | 409 | Conflict (duplicate slug, handle, etc.) |
 | 410 | Gone (artifact expired) |
+| 413 | Upload too large (file or artifact size limit exceeded) |
 | 429 | Rate limit exceeded |
 | 503 | Service temporarily unavailable |
 

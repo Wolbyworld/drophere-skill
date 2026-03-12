@@ -106,6 +106,15 @@ node ~/.claude/skills/drophere/scripts/publish.mjs ./site/
 node ~/.claude/skills/drophere/scripts/publish.mjs ./site/
 ```
 
+## Upload Size Limits
+
+|  | Per file | Per artifact (total) |
+|--|---------|---------------------|
+| Anonymous | 10 MB | 25 MB |
+| Authenticated | 50 MB | 200 MB |
+
+Exceeding a limit returns HTTP 413. The `size` field in each file manifest entry must be exact bytes.
+
 ## Dependencies
 
 - Node.js 18+ (uses built-in `crypto`, `fs`, `path`, `http`, `https` — no external packages)
