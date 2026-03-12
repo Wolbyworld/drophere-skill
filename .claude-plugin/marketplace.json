@@ -1,0 +1,17 @@
+{
+  "name": "drophere",
+  "owner": {
+    "name": "Wolbyworld"
+  },
+  "metadata": {
+    "description": "Instant static file hosting for AI agents",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "drophere",
+      "source": "./",
+      "description": "Publish static files to drophere.cc for instant public hosting"
+    }
+  ]
+}

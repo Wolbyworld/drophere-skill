@@ -1,5 +1,7 @@
 {
   "name": "drophere",
   "version": "0.1.0",
-  "description": "Publish static files to drophere.cc for instant public hosting"
+  "description": "Publish static files to drophere.cc for instant public hosting",
+  "skills": "./skills/",
+  "commands": "./commands/"
 }

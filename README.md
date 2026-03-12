@@ -16,9 +16,14 @@ npx skills add Wolbyworld/drophere-skill
 curl -fsSL https://drophere.cc/install.sh | bash
 ```
 
-### Cowork plugin
+### Cowork (Claude Code Work)
 
-This repo is structured as a Claude Code Plugin. Clone or add it as a plugin to get `/publish` and the full skill automatically.
+Register the marketplace, then install:
+
+```
+/plugin marketplace add Wolbyworld/drophere-skill
+/plugin install drophere
+```
 
 ## What it does
 

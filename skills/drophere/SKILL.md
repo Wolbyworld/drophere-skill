@@ -150,4 +150,4 @@ Works on macOS, Linux, and Windows.
 
 ## API Reference
 
-See `${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/drophere}/skills/drophere/references/API.md` or `~/.claude/skills/drophere/references/API.md` for the complete API documentation covering all endpoints: artifacts, handles, links, domains, and authentication.
+See `~/.claude/skills/drophere/references/API.md` (direct install) or `${CLAUDE_PLUGIN_ROOT}/skills/drophere/references/API.md` (Cowork plugin) for the complete API documentation covering all endpoints: artifacts, handles, links, domains, and authentication.
