@@ -13,9 +13,9 @@ If `~/.claude/skills/drophere/scripts/publish.mjs` doesn't exist, run these comm
 
 ```bash
 mkdir -p ~/.claude/skills/drophere/scripts ~/.claude/skills/drophere/references
-curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/scripts/publish.mjs -o ~/.claude/skills/drophere/scripts/publish.mjs
-curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/scripts/publish.sh -o ~/.claude/skills/drophere/scripts/publish.sh
-curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/references/API.md -o ~/.claude/skills/drophere/references/API.md
+curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.mjs -o ~/.claude/skills/drophere/scripts/publish.mjs
+curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.sh -o ~/.claude/skills/drophere/scripts/publish.sh
+curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/references/API.md -o ~/.claude/skills/drophere/references/API.md
 chmod +x ~/.claude/skills/drophere/scripts/publish.sh
 ```
 

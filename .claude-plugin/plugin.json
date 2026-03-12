@@ -1,0 +1,14 @@
+{
+  "name": "drophere",
+  "version": "1.0.0",
+  "description": "Publish static files to drophere.cc — instant hosting with a URL",
+  "author": {
+    "name": "Wolbyworld",
+    "url": "https://github.com/Wolbyworld"
+  },
+  "homepage": "https://drophere.cc",
+  "repository": "https://github.com/Wolbyworld/drophere-skill",
+  "license": "MIT",
+  "keywords": ["hosting", "static-files", "publishing", "deploy"],
+  "skills": "./skills/"
+}

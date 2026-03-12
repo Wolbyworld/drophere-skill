@@ -4,8 +4,23 @@ Publish static files to [drophere.cc](https://drophere.cc) — instant hosting w
 
 ## Install
 
+### Plugin (recommended — one command)
+
+```bash
+/plugin marketplace add Wolbyworld/drophere-skill
+/plugin install drophere
+```
+
+### Skills CLI
+
 ```bash
 npx skills add Wolbyworld/drophere-skill
+```
+
+### Direct install
+
+```bash
+curl -fsSL https://drophere.cc/install.sh | bash
 ```
 
 ## What it does
@@ -25,7 +40,7 @@ node ~/.claude/skills/drophere/scripts/publish.mjs ./dist/
 node ~/.claude/skills/drophere/scripts/publish.mjs index.html style.css
 ```
 
-See [SKILL.md](SKILL.md) for full documentation.
+See [skills/drophere/SKILL.md](skills/drophere/SKILL.md) for full documentation.
 
 ---
 

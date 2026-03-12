@@ -52,10 +52,10 @@ download() {
   fi
 }
 
-download "$BASE_URL/SKILL.md"              "$SKILL_DIR/SKILL.md"
-download "$BASE_URL/scripts/publish.mjs"   "$SKILL_DIR/scripts/publish.mjs"
-download "$BASE_URL/scripts/publish.sh"    "$SKILL_DIR/scripts/publish.sh"
-download "$BASE_URL/references/API.md"     "$SKILL_DIR/references/API.md"
+download "$BASE_URL/skills/drophere/SKILL.md"              "$SKILL_DIR/SKILL.md"
+download "$BASE_URL/skills/drophere/scripts/publish.mjs"   "$SKILL_DIR/scripts/publish.mjs"
+download "$BASE_URL/skills/drophere/scripts/publish.sh"    "$SKILL_DIR/scripts/publish.sh"
+download "$BASE_URL/skills/drophere/references/API.md"     "$SKILL_DIR/references/API.md"
 
 # Make shim executable (publish.mjs doesn't need chmod)
 chmod +x "$SKILL_DIR/scripts/publish.sh"
