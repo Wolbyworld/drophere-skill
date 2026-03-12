@@ -4,13 +4,6 @@ Publish static files to [drophere.cc](https://drophere.cc) — instant hosting w
 
 ## Install
 
-### Plugin (recommended — one command)
-
-```bash
-/plugin marketplace add Wolbyworld/drophere-skill
-/plugin install drophere
-```
-
 ### Skills CLI
 
 ```bash
@@ -22,6 +15,10 @@ npx skills add Wolbyworld/drophere-skill
 ```bash
 curl -fsSL https://drophere.cc/install.sh | bash
 ```
+
+### Cowork plugin
+
+This repo is structured as a Claude Code Plugin. Clone or add it as a plugin to get `/publish` and the full skill automatically.
 
 ## What it does
 

@@ -1,6 +1,9 @@
 ---
 name: drophere
-description: Publish static files to drophere.cc — instant hosting with a URL
+description: >
+  This skill should be used when the user asks to "publish files",
+  "deploy to a URL", "host a static site", "share an HTML file publicly",
+  "upload to drophere", or needs to make local files accessible via a public URL.
 ---
 
 # drophere.cc — Publish Static Files
@@ -9,27 +12,39 @@ Publish any static files (HTML, images, PDFs, etc.) to the web instantly. Files 
 
 ## Setup
 
-If `~/.claude/skills/drophere/scripts/publish.mjs` doesn't exist, run these commands first:
+Set the publish script path. If `CLAUDE_PLUGIN_ROOT` is set (Cowork/plugin install), files are already in place. Otherwise, download them:
 
 ```bash
-mkdir -p ~/.claude/skills/drophere/scripts ~/.claude/skills/drophere/references
-curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.mjs -o ~/.claude/skills/drophere/scripts/publish.mjs
-curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.sh -o ~/.claude/skills/drophere/scripts/publish.sh
-curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/references/API.md -o ~/.claude/skills/drophere/references/API.md
-chmod +x ~/.claude/skills/drophere/scripts/publish.sh
+DROPHERE_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/drophere}"
+
+if [ ! -f "$DROPHERE_DIR/skills/drophere/scripts/publish.mjs" ] && [ ! -f "$DROPHERE_DIR/scripts/publish.mjs" ]; then
+  mkdir -p ~/.claude/skills/drophere/scripts ~/.claude/skills/drophere/references
+  curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.mjs -o ~/.claude/skills/drophere/scripts/publish.mjs
+  curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.sh -o ~/.claude/skills/drophere/scripts/publish.sh
+  curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/references/API.md -o ~/.claude/skills/drophere/references/API.md
+  chmod +x ~/.claude/skills/drophere/scripts/publish.sh
+  DROPHERE_DIR="$HOME/.claude/skills/drophere"
+fi
+```
+
+For all commands below, use `PUBLISH` as shorthand:
+
+```bash
+PUBLISH="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/drophere/scripts/publish.mjs}"
+PUBLISH="${PUBLISH:-$HOME/.claude/skills/drophere/scripts/publish.mjs}"
 ```
 
 ## Quick Start
 
 ```bash
 # Publish a directory (anonymous, 24h TTL, no auth needed)
-node ~/.claude/skills/drophere/scripts/publish.mjs ./dist/
+node "$PUBLISH" ./dist/
 
 # Publish specific files
-node ~/.claude/skills/drophere/scripts/publish.mjs index.html style.css
+node "$PUBLISH" index.html style.css
 
 # Update an existing artifact
-node ~/.claude/skills/drophere/scripts/publish.mjs --slug abc123 ./dist/
+node "$PUBLISH" --slug abc123 ./dist/
 ```
 
 The script outputs the site URL to stdout. All progress goes to stderr.
@@ -94,28 +109,28 @@ State is saved to `.drophere/state.json` in the working directory. Re-running `p
 ```bash
 # Build then publish
 npm run build
-URL=$(node ~/.claude/skills/drophere/scripts/publish.mjs ./dist/)
+URL=$(node "$PUBLISH" ./dist/)
 echo "Live at: $URL"
 ```
 
 ### Publish a single HTML file
 ```bash
-node ~/.claude/skills/drophere/scripts/publish.mjs index.html
+node "$PUBLISH" index.html
 ```
 
 ### Share an image or PDF
 ```bash
-node ~/.claude/skills/drophere/scripts/publish.mjs screenshot.png
+node "$PUBLISH" screenshot.png
 # Auto-viewer renders a rich preview, no index.html needed
 ```
 
 ### Incremental deploy (update in place)
 ```bash
 # First publish — creates artifact, saves state
-node ~/.claude/skills/drophere/scripts/publish.mjs ./site/
+node "$PUBLISH" ./site/
 
 # Later — only uploads changed files
-node ~/.claude/skills/drophere/scripts/publish.mjs ./site/
+node "$PUBLISH" ./site/
 ```
 
 ## Upload Size Limits
@@ -135,4 +150,4 @@ Works on macOS, Linux, and Windows.
 
 ## API Reference
 
-See `~/.claude/skills/drophere/references/API.md` for the complete API documentation covering all endpoints: artifacts, handles, links, domains, and authentication.
+See `${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/drophere}/skills/drophere/references/API.md` or `~/.claude/skills/drophere/references/API.md` for the complete API documentation covering all endpoints: artifacts, handles, links, domains, and authentication.
