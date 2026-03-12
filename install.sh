@@ -10,6 +10,80 @@ BASE_URL="https://drophere.cc/skill"
 log()   { echo "[drophere] $*"; }
 err()   { echo "[drophere] ERROR: $*" >&2; }
 
+# Download a file with error reporting
+download() {
+  local url="$1" dest="$2"
+  if curl -fsSL "$url" -o "$dest" 2>/dev/null; then
+    log "  $(basename "$dest")"
+  else
+    err "Failed to download: $url"
+    exit 1
+  fi
+}
+
+# --- Cowork environment detection ---
+
+# Case A: Already installed as a Cowork plugin
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  log "drophere is already installed as a Cowork plugin."
+  log "  Publish: node \"\$CLAUDE_PLUGIN_ROOT/skills/drophere/scripts/publish.mjs\" ./your-files/"
+  exit 0
+fi
+
+# Case B: Cowork VM detected (has /sessions dir), plugin not yet installed
+OUTPUTS_DIR=""
+if [ -d "/sessions" ]; then
+  for d in /sessions/*/mnt/outputs; do
+    [ -d "$d" ] && OUTPUTS_DIR="$d" && break
+  done
+fi
+
+if [ -n "$OUTPUTS_DIR" ]; then
+  log "Cowork environment detected — building plugin..."
+
+  # Check for zip (needed to build .plugin file)
+  if ! command -v zip &>/dev/null; then
+    err "zip is required to build the plugin file."
+    exit 1
+  fi
+
+  # Check for curl
+  if ! command -v curl &>/dev/null; then
+    err "curl is required to download files."
+    exit 1
+  fi
+
+  BUILD_DIR=$(mktemp -d)
+  trap 'rm -rf "$BUILD_DIR"' EXIT
+
+  # Plugin manifest
+  mkdir -p "$BUILD_DIR/.claude-plugin"
+  download "$BASE_URL/.claude-plugin/plugin.json"      "$BUILD_DIR/.claude-plugin/plugin.json"
+  download "$BASE_URL/.claude-plugin/marketplace.json"  "$BUILD_DIR/.claude-plugin/marketplace.json"
+
+  # Commands
+  mkdir -p "$BUILD_DIR/commands"
+  download "$BASE_URL/commands/publish.md"  "$BUILD_DIR/commands/publish.md"
+
+  # Skill files
+  mkdir -p "$BUILD_DIR/skills/drophere/scripts" "$BUILD_DIR/skills/drophere/references"
+  download "$BASE_URL/skills/drophere/SKILL.md"             "$BUILD_DIR/skills/drophere/SKILL.md"
+  download "$BASE_URL/skills/drophere/scripts/publish.mjs"  "$BUILD_DIR/skills/drophere/scripts/publish.mjs"
+  download "$BASE_URL/skills/drophere/scripts/publish.sh"   "$BUILD_DIR/skills/drophere/scripts/publish.sh"
+  download "$BASE_URL/skills/drophere/references/API.md"    "$BUILD_DIR/skills/drophere/references/API.md"
+
+  chmod +x "$BUILD_DIR/skills/drophere/scripts/publish.sh"
+
+  # Build .plugin zip
+  (cd "$BUILD_DIR" && zip -qr "$OUTPUTS_DIR/drophere.plugin" .)
+
+  log "Plugin saved to outputs: drophere.plugin"
+  log "Run: present_files drophere.plugin"
+  exit 0
+fi
+
+# --- Standard CLI install ---
+
 # Check for Node.js 18+
 if ! command -v node &>/dev/null; then
   err "Node.js is required but not installed."
@@ -40,17 +114,6 @@ fi
 # Create directory structure
 log "Installing to $SKILL_DIR..."
 mkdir -p "$SKILL_DIR/scripts" "$SKILL_DIR/references"
-
-# Download files
-download() {
-  local url="$1" dest="$2"
-  if curl -fsSL "$url" -o "$dest" 2>/dev/null; then
-    log "  $(basename "$dest")"
-  else
-    err "Failed to download: $url"
-    exit 1
-  fi
-}
 
 download "$BASE_URL/skills/drophere/SKILL.md"              "$SKILL_DIR/SKILL.md"
 download "$BASE_URL/skills/drophere/scripts/publish.mjs"   "$SKILL_DIR/scripts/publish.mjs"

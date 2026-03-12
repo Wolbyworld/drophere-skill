@@ -18,11 +18,16 @@ curl -fsSL https://drophere.cc/install.sh | bash
 
 ### Cowork (Claude Code Work)
 
-Register the marketplace, then install:
+Run the install script — it auto-detects Cowork and builds a `.plugin` file:
+
+```bash
+curl -fsSL https://drophere.cc/install.sh | bash
+```
+
+Then present the plugin to install it:
 
 ```
-/plugin marketplace add Wolbyworld/drophere-skill
-/plugin install drophere
+present_files drophere.plugin
 ```
 
 ## What it does
