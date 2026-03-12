@@ -7,6 +7,18 @@ description: Publish static files to drophere.cc — instant hosting with a URL
 
 Publish any static files (HTML, images, PDFs, etc.) to the web instantly. Files are hosted at `https://<slug>.drophere.cc/`.
 
+## Setup
+
+If `~/.claude/skills/drophere/scripts/publish.mjs` doesn't exist, run these commands first:
+
+```bash
+mkdir -p ~/.claude/skills/drophere/scripts ~/.claude/skills/drophere/references
+curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/scripts/publish.mjs -o ~/.claude/skills/drophere/scripts/publish.mjs
+curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/scripts/publish.sh -o ~/.claude/skills/drophere/scripts/publish.sh
+curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/references/API.md -o ~/.claude/skills/drophere/references/API.md
+chmod +x ~/.claude/skills/drophere/scripts/publish.sh
+```
+
 ## Quick Start
 
 ```bash
