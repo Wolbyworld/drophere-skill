@@ -74,15 +74,18 @@ if [ -d "/sessions" ]; then
 
   chmod +x "$BUILD_DIR/skills/drophere/scripts/publish.sh"
 
-  # Build .plugin zip in /tmp first, then copy to outputs
-  # (Cowork's outputs dir doesn't support zip's atomic replace)
-  PLUGIN_TMP=$(mktemp /tmp/drophere-XXXXXX.plugin)
+  # Build .plugin zip
+  # Zip to a temp file first then copy — direct zip to outputs fails in Cowork sandbox
+  PLUGIN_TMP=$(mktemp -u /tmp/drophere-XXXXXX.plugin)
   (cd "$BUILD_DIR" && zip -qr "$PLUGIN_TMP" .)
   cp "$PLUGIN_TMP" "$OUTPUTS_DIR/drophere.plugin"
   rm -f "$PLUGIN_TMP"
 
-  log "Plugin saved: $OUTPUTS_DIR/drophere.plugin"
-  log "Run: present_files $OUTPUTS_DIR/drophere.plugin"
+  log ""
+  log "Plugin built successfully!"
+  log "File: $OUTPUTS_DIR/drophere.plugin"
+  log ""
+  log "To complete installation, click the plugin file above or present it to the user."
   exit 0
 fi
 
