@@ -133,6 +133,38 @@ node "$PUBLISH" ./site/
 node "$PUBLISH" ./site/
 ```
 
+## Key-Value Store
+
+Every artifact includes a built-in key-value store for lightweight data persistence
+(leaderboards, counters, preferences). No setup needed — it's always available.
+
+### Usage (from hosted app's client-side JS)
+```javascript
+// Write a value
+fetch('/_api/store/leaderboard', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify([{ name: 'Alice', score: 100 }])
+});
+
+// Read a value
+const res = await fetch('/_api/store/leaderboard');
+const { value } = await res.json();
+
+// List all keys
+const list = await fetch('/_api/store');
+const { keys } = await list.json();
+
+// Delete a value
+fetch('/_api/store/leaderboard', { method: 'DELETE' });
+```
+
+### Limits
+- Max value size: 100KB
+- Key pattern: alphanumeric, dots, hyphens, underscores, colons, slashes (max 512 chars)
+- Rate: 300 reads/min, 30 writes/min per IP per artifact
+- Consistency: eventual (KV) — concurrent writes are last-writer-wins
+
 ## Upload Size Limits
 
 |  | Per file | Per artifact (total) |

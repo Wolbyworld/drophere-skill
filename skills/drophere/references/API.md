@@ -656,6 +656,114 @@ POST /api/v1/feedback
 
 ---
 
+## Key-Value Store
+
+Per-artifact key-value storage, accessible from the artifact's own origin. No authentication required — designed for public read/write from hosted apps (e.g., game leaderboards).
+
+All endpoints served from the artifact's subdomain: `{slug}.drophere.cc/_api/store/`. Also works via handles and custom domains.
+
+### Get Value
+
+```
+GET /_api/store/:key
+```
+
+**Response (200):**
+```json
+{
+  "value": [{ "name": "Alice", "score": 100 }],
+  "metadata": { "updatedAt": "2026-03-13T10:00:00.000Z" }
+}
+```
+
+**Errors:**
+| Status | Code | Description |
+|--------|------|-------------|
+| 404 | `KEY_NOT_FOUND` | Key does not exist |
+| 429 | `RATE_LIMITED` | Rate limit exceeded (300 reads/min per IP per artifact) |
+
+### Put Value
+
+```
+PUT /_api/store/:key
+Content-Type: application/json
+
+[{ "name": "Alice", "score": 100 }]
+```
+
+Body must be valid JSON, max 100KB.
+
+**Response (200):**
+```json
+{ "ok": true, "key": "leaderboard" }
+```
+
+**Errors:**
+| Status | Code | Description |
+|--------|------|-------------|
+| 400 | `INVALID_KEY` | Key fails validation |
+| 400 | `VALUE_TOO_LARGE` | Body exceeds 100KB |
+| 400 | `INVALID_JSON` | Body is not valid JSON |
+| 400 | `INVALID_CONTENT_TYPE` | Missing `Content-Type: application/json` |
+| 429 | `RATE_LIMITED` | Rate limit exceeded (30 writes/min per IP per artifact) |
+
+### Delete Value
+
+```
+DELETE /_api/store/:key
+```
+
+**Response (200):**
+```json
+{ "ok": true }
+```
+
+**Errors:**
+| Status | Code | Description |
+|--------|------|-------------|
+| 404 | `KEY_NOT_FOUND` | Key does not exist |
+| 429 | `RATE_LIMITED` | Rate limit exceeded (30 writes/min) |
+
+### List Keys
+
+```
+GET /_api/store
+```
+
+Optional query parameter: `?cursor=...` for pagination.
+
+**Response (200):**
+```json
+{
+  "keys": [
+    { "name": "leaderboard", "metadata": { "updatedAt": "2026-03-13T10:00:00.000Z" } }
+  ],
+  "cursor": null
+}
+```
+
+Returns up to 1000 keys. Rate-limited at the write tier (30/min).
+
+### Key Validation
+
+Keys must match: `^[a-zA-Z0-9._\-:/]{1,512}$`
+
+Valid: `score`, `game.level-1_data`, `leaderboard/level:1`
+Invalid: empty string, spaces, `../etc/passwd`, unicode, `<script>`, keys > 512 chars
+
+### CORS
+
+All store responses include:
+```
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+```
+
+`OPTIONS` requests return 204 with CORS headers (preflight support).
+
+---
+
 ## Error Format
 
 All errors follow a consistent format:
