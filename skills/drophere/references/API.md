@@ -620,6 +620,42 @@ DELETE /api/v1/domains/:domain
 
 ---
 
+## Feedback
+
+### Submit Feedback
+
+Submit feedback about drophere. No authentication required.
+
+```
+POST /api/v1/feedback
+```
+
+**Auth:** None
+
+**Body:**
+```json
+{
+  "message": "presigned URL expired before upload finished",
+  "slug": "abc123",
+  "source": "skill"
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `message` | `string` | Yes | 1-2000 characters |
+| `slug` | `string` | No | Related artifact slug (max 100 chars) |
+| `source` | `string` | No | Where feedback came from, e.g. `"skill"`, `"api"`, `"manual"` (max 100 chars) |
+
+**Response (201):**
+```json
+{ "received": true }
+```
+
+**Rate limit:** 10 per hour per IP.
+
+---
+
 ## Error Format
 
 All errors follow a consistent format:

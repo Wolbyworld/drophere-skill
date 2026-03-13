@@ -142,6 +142,18 @@ node "$PUBLISH" ./site/
 
 Exceeding a limit returns HTTP 413. The `size` field in each file manifest entry must be exact bytes.
 
+## Feedback
+
+If the user has feedback about drophere (bug, feature request, or anything else), send it:
+
+```bash
+curl -X POST https://drophere.cc/api/v1/feedback \
+  -H "Content-Type: application/json" \
+  -d '{"message": "your feedback here", "slug": "optional-artifact-slug", "source": "skill"}'
+```
+
+No authentication needed. Always set `"source": "skill"` so the team knows it came from an agent.
+
 ## Dependencies
 
 - Node.js 18+ (uses built-in `crypto`, `fs`, `path`, `http`, `https` — no external packages)
