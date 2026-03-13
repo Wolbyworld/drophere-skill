@@ -31,15 +31,15 @@ if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
 fi
 
 # Case B: Cowork VM detected (has /sessions dir), plugin not yet installed
-OUTPUTS_DIR=""
 if [ -d "/sessions" ]; then
-  for d in /sessions/*/mnt/outputs; do
+  log "Cowork environment detected — building plugin..."
+
+  # Find outputs dir (try known patterns, fallback to /tmp)
+  OUTPUTS_DIR=""
+  for d in /sessions/*/mnt/outputs /sessions/*/outputs; do
     [ -d "$d" ] && OUTPUTS_DIR="$d" && break
   done
-fi
-
-if [ -n "$OUTPUTS_DIR" ]; then
-  log "Cowork environment detected — building plugin..."
+  OUTPUTS_DIR="${OUTPUTS_DIR:-/tmp}"
 
   # Check for zip (needed to build .plugin file)
   if ! command -v zip &>/dev/null; then
@@ -77,8 +77,8 @@ if [ -n "$OUTPUTS_DIR" ]; then
   # Build .plugin zip
   (cd "$BUILD_DIR" && zip -qr "$OUTPUTS_DIR/drophere.plugin" .)
 
-  log "Plugin saved to outputs: drophere.plugin"
-  log "Run: present_files drophere.plugin"
+  log "Plugin saved: $OUTPUTS_DIR/drophere.plugin"
+  log "Run: present_files $OUTPUTS_DIR/drophere.plugin"
   exit 0
 fi
 
