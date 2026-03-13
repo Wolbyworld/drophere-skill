@@ -32,7 +32,7 @@ fi
 
 # Case B: Cowork VM detected (has /sessions dir), plugin not yet installed
 if [ -d "/sessions" ]; then
-  log "Cowork environment detected — building plugin..."
+  log "Cowork environment detected — downloading plugin..."
 
   # Find outputs dir (try known patterns, fallback to /tmp)
   OUTPUTS_DIR=""
@@ -41,48 +41,18 @@ if [ -d "/sessions" ]; then
   done
   OUTPUTS_DIR="${OUTPUTS_DIR:-/tmp}"
 
-  # Check for zip (needed to build .plugin file)
-  if ! command -v zip &>/dev/null; then
-    err "zip is required to build the plugin file."
-    exit 1
-  fi
-
-  # Check for curl
   if ! command -v curl &>/dev/null; then
-    err "curl is required to download files."
+    err "curl is required."
     exit 1
   fi
 
-  BUILD_DIR=$(mktemp -d)
-  trap 'rm -rf "$BUILD_DIR"' EXIT
-
-  # Plugin manifest
-  mkdir -p "$BUILD_DIR/.claude-plugin"
-  download "$BASE_URL/.claude-plugin/plugin.json"      "$BUILD_DIR/.claude-plugin/plugin.json"
-  download "$BASE_URL/.claude-plugin/marketplace.json"  "$BUILD_DIR/.claude-plugin/marketplace.json"
-
-  # Commands
-  mkdir -p "$BUILD_DIR/commands"
-  download "$BASE_URL/commands/publish.md"  "$BUILD_DIR/commands/publish.md"
-
-  # Skill files
-  mkdir -p "$BUILD_DIR/skills/drophere/scripts" "$BUILD_DIR/skills/drophere/references"
-  download "$BASE_URL/skills/drophere/SKILL.md"             "$BUILD_DIR/skills/drophere/SKILL.md"
-  download "$BASE_URL/skills/drophere/scripts/publish.mjs"  "$BUILD_DIR/skills/drophere/scripts/publish.mjs"
-  download "$BASE_URL/skills/drophere/scripts/publish.sh"   "$BUILD_DIR/skills/drophere/scripts/publish.sh"
-  download "$BASE_URL/skills/drophere/references/API.md"    "$BUILD_DIR/skills/drophere/references/API.md"
-
-  chmod +x "$BUILD_DIR/skills/drophere/scripts/publish.sh"
-
-  # Build .plugin zip
-  # Zip to a temp file first then copy — direct zip to outputs fails in Cowork sandbox
   PLUGIN_TMP=$(mktemp -u /tmp/drophere-XXXXXX.plugin)
-  (cd "$BUILD_DIR" && zip -qr "$PLUGIN_TMP" .)
+  curl -fsSL "https://drophere.cc/drophere.plugin" -o "$PLUGIN_TMP"
   cp "$PLUGIN_TMP" "$OUTPUTS_DIR/drophere.plugin"
   rm -f "$PLUGIN_TMP"
 
   log ""
-  log "Plugin built successfully!"
+  log "Plugin installed successfully!"
   log "File: $OUTPUTS_DIR/drophere.plugin"
   log ""
   log "To complete installation, click the plugin file above or present it to the user."
