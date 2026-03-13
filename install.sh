@@ -74,11 +74,24 @@ if [ -d "/sessions" ]; then
 
   chmod +x "$BUILD_DIR/skills/drophere/scripts/publish.sh"
 
-  # Build .plugin zip
-  (cd "$BUILD_DIR" && zip -qr "$OUTPUTS_DIR/drophere.plugin" .)
+  # Build .plugin zip — write to /tmp first, then move to outputs.
+  # Avoids "Operation not permitted" when a stale drophere.plugin exists
+  # from a previous Cowork session (different Linux user).
+  PLUGIN_TMP="/tmp/drophere-$$.plugin"
+  PLUGIN_OUT="$OUTPUTS_DIR/drophere.plugin"
+  (cd "$BUILD_DIR" && zip -qr "$PLUGIN_TMP" .)
+  rm -f "$PLUGIN_OUT" 2>/dev/null || true
+  if mv "$PLUGIN_TMP" "$PLUGIN_OUT" 2>/dev/null; then
+    : # moved successfully, temp file is gone
+  elif cp "$PLUGIN_TMP" "$PLUGIN_OUT" 2>/dev/null; then
+    rm -f "$PLUGIN_TMP" 2>/dev/null || true
+  else
+    # Can't write to outputs dir at all — serve from temp path directly
+    PLUGIN_OUT="$PLUGIN_TMP"
+  fi
 
-  log "Plugin saved: $OUTPUTS_DIR/drophere.plugin"
-  log "Run: present_files $OUTPUTS_DIR/drophere.plugin"
+  log "Plugin saved: $PLUGIN_OUT"
+  log "Run: present_files $PLUGIN_OUT"
   exit 0
 fi
 
