@@ -746,10 +746,10 @@ Returns up to 1000 keys. Rate-limited at the write tier (30/min).
 
 ### Key Validation
 
-Keys must match: `^[a-zA-Z0-9._\-:/]{1,512}$`
+Keys must match: `^[a-zA-Z0-9._\-:/]{1,480}$`
 
 Valid: `score`, `game.level-1_data`, `leaderboard/level:1`
-Invalid: empty string, spaces, `../etc/passwd`, unicode, `<script>`, keys > 512 chars
+Invalid: empty string, spaces, `../etc/passwd`, unicode, `<script>`, keys > 480 chars
 
 ### CORS
 
