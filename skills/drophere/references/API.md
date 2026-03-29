@@ -352,6 +352,162 @@ DELETE /api/v1/artifact/:slug
 
 ---
 
+## Access Control
+
+Restrict who can view an artifact by email address or email domain.
+
+### Set Access Control
+
+```
+PATCH /api/v1/artifact/:slug/access
+```
+
+**Auth:** Required (must be artifact owner)
+
+**Body:**
+```json
+{
+  "visibility": "restricted",
+  "allowedEmails": ["alice@acme.com", "bob@acme.com"],
+  "allowedDomains": ["acme.com"]
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `visibility` | `string` | Yes | `"public"` or `"restricted"` |
+| `allowedEmails` | `string[]` | No | Max 100 emails. Required if no domains. |
+| `allowedDomains` | `string[]` | No | Max 20 domains. Consumer domains (gmail.com, etc.) blocked. |
+
+To make public again, set `visibility` to `"public"` — this clears all allowlists.
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "visibility": "restricted",
+  "allowedEmails": ["alice@acme.com", "bob@acme.com"],
+  "allowedDomains": ["acme.com"]
+}
+```
+
+**Errors:**
+| Status | Error |
+|--------|-------|
+| 400 | Invalid visibility, email, or domain format |
+| 400 | Consumer domain blocked (gmail.com, outlook.com, etc.) |
+| 400 | At least one email or domain required for restricted |
+| 403 | You do not own this artifact |
+| 404 | Artifact not found |
+| 410 | Artifact has expired |
+
+### Get Access Control
+
+```
+GET /api/v1/artifact/:slug/access
+```
+
+**Auth:** Required (must be artifact owner)
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "visibility": "restricted",
+  "allowedEmails": ["alice@acme.com"],
+  "allowedDomains": ["acme.com"]
+}
+```
+
+---
+
+## Visitor Authentication
+
+Visitors to restricted artifacts verify their email via a one-time code. After verification, a session cookie is set on `.drophere.cc` for 30 days.
+
+### Request Visitor Code
+
+```
+POST /api/v1/visitor/request-code
+```
+
+**Auth:** None
+
+**Body:**
+```json
+{ "email": "alice@acme.com", "slug": "abc123" }
+```
+
+**Response (200):**
+```json
+{ "success": true, "expiresIn": 900 }
+```
+
+**Errors:**
+| Status | Error |
+|--------|-------|
+| 400 | Invalid email or missing slug |
+| 404 | Artifact not found (or not restricted) |
+| 429 | Code already sent, wait 60 seconds |
+
+Note: If the email is not on the allowlist, the endpoint still returns 200 but does not send a code. This prevents probing which emails have access.
+
+### Verify Visitor Code
+
+```
+POST /api/v1/visitor/verify-code
+```
+
+**Auth:** None
+
+**Body:**
+```json
+{ "email": "alice@acme.com", "code": "ABCD-EFGH", "slug": "abc123" }
+```
+
+**Response (200):**
+```json
+{ "success": true, "email": "alice@acme.com" }
+```
+
+Sets cookie: `dh_visitor` on `.drophere.cc` (30-day TTL, HttpOnly, Secure).
+
+**Errors:**
+| Status | Error |
+|--------|-------|
+| 400 | Invalid email, missing code or slug |
+| 401 | Invalid or expired code |
+
+---
+
+## Capability Discovery
+
+### Get API Capabilities
+
+```
+GET /api/v1/skill/docs
+```
+
+**Auth:** None
+
+Returns a structured list of all API capabilities. Useful for agents to discover available features without reinstalling the skill.
+
+**Response (200):**
+```json
+{
+  "version": "0.2.0",
+  "capabilities": [
+    { "name": "publish", "summary": "Upload static files to the web instantly", "endpoints": [...] },
+    { "name": "access-control", "summary": "Restrict who can view artifacts by email or domain", "endpoints": [...] }
+  ],
+  "docsUrl": "https://drophere.cc/skill/references/API.md"
+}
+```
+
+Cached for 1 hour (`Cache-Control: public, max-age=3600`).
+
+---
+
 ## Handles
 
 Handles provide a subdomain namespace: `handle.drophere.cc/location`.

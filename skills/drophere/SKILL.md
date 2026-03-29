@@ -3,7 +3,9 @@ name: drophere
 description: >
   This skill should be used when the user asks to "publish files",
   "deploy to a URL", "host a static site", "share an HTML file publicly",
-  "upload to drophere", or needs to make local files accessible via a public URL.
+  "upload to drophere", "protect a page", "restrict access",
+  "add email access control", "make page private", "share privately",
+  or needs to make local files accessible via a public URL.
 ---
 
 # drophere.cc — Publish Static Files
@@ -48,6 +50,65 @@ node "$PUBLISH" --slug abc123 ./dist/
 ```
 
 The script outputs the site URL to stdout. All progress goes to stderr.
+
+## Access Control
+
+Restrict who can view a published artifact by email or email domain. Visitors must verify their email via a one-time code before viewing protected content.
+
+### Protect an artifact (requires authentication)
+
+```bash
+# Restrict to specific emails
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/access" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility":"restricted","allowedEmails":["alice@acme.com","bob@acme.com"]}'
+
+# Restrict to an email domain (everyone @acme.com)
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/access" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility":"restricted","allowedDomains":["acme.com"]}'
+
+# Combine emails and domains
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/access" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility":"restricted","allowedEmails":["guest@example.com"],"allowedDomains":["acme.com"]}'
+
+# Make public again
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/access" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -d '{"visibility":"public"}'
+```
+
+### Check current access settings
+
+```bash
+curl "https://drophere.cc/api/v1/artifact/${SLUG}/access" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY"
+```
+
+### Discover latest capabilities
+
+Fetch the current API capabilities from the server (useful for discovering new features):
+
+```bash
+curl -s "https://drophere.cc/api/v1/skill/docs"
+```
+
+### Notes
+
+- Consumer email domains (gmail.com, outlook.com, etc.) are blocked in `allowedDomains` to prevent accidental broad access. Use `allowedEmails` for individual accounts.
+- Access control works on `*.drophere.cc` subdomains. Custom domains stay public for now.
+- Agents with a valid API key whose email is in the allowlist can access restricted pages directly via Bearer token.
+- The artifact owner always has access to their own restricted artifacts.
+
+### When to ask about access control
+
+If the user's content appears internal, sensitive, or intended for a specific audience (e.g., "for the team", "client review", "internal dashboard", company data), ask whether to restrict access before publishing:
+
+> "Should I restrict access to this? I can limit viewing to specific emails or an email domain (e.g., everyone @acme.com)."
 
 ## Authentication
 
