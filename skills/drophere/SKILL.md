@@ -82,6 +82,29 @@ curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/access" \
   -d '{"visibility":"public"}'
 ```
 
+### Password Protection
+
+A simpler alternative to email allowlists — protect an artifact with a password:
+
+```bash
+# Set a password
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/password" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"password": "my-secret"}'
+
+# Remove password
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/password" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"password": null}'
+```
+
+- Password stored as bcrypt hash (8-128 chars)
+- Visitors see a password form; correct entry sets a 30-day session cookie
+- Changing or removing the password invalidates all existing sessions
+- Works alongside email-allowlist access control (password is checked first)
+
 ### Check current access settings
 
 ```bash
@@ -194,6 +217,32 @@ node "$PUBLISH" ./site/
 node "$PUBLISH" ./site/
 ```
 
+### Deploy a React/Vue/SvelteKit SPA
+
+Enable SPA routing so that unmatched paths serve `index.html` (needed for client-side routers):
+
+```bash
+# Publish the build output
+URL=$(node "$PUBLISH" ./dist/)
+
+# Enable SPA mode
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/metadata" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"viewerMetadata": {"spaMode": true}}'
+```
+
+With `spaMode` on, visiting `/about` or `/dashboard/settings` serves `index.html` — letting your client-side router handle navigation. Static assets (JS, CSS, images) are still served normally.
+
+### Duplicate an artifact
+
+```bash
+curl -X POST "https://drophere.cc/api/v1/artifact/${SLUG}/duplicate" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY"
+```
+
+Creates a server-side copy with a new slug. Useful for templates and forks.
+
 ## Key-Value Store
 
 Every artifact includes a built-in key-value store for lightweight data persistence
@@ -226,12 +275,72 @@ fetch('/_api/store/leaderboard', { method: 'DELETE' });
 - Rate: 300 reads/min, 30 writes/min per IP per artifact
 - Consistency: eventual (KV) — concurrent writes are last-writer-wins
 
+## Service Variables
+
+Store API keys and secrets that proxy routes inject into upstream API calls. Values are encrypted at rest and never returned via the API.
+
+```bash
+# Create or update a variable
+curl -X PUT https://drophere.cc/api/v1/me/variables/OPENAI_KEY \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "sk-abc123...", "allowedUpstreams": ["api.openai.com"]}'
+
+# List variables (names only — values are never returned)
+curl https://drophere.cc/api/v1/me/variables \
+  -H "Authorization: Bearer $API_KEY"
+
+# Delete a variable
+curl -X DELETE https://drophere.cc/api/v1/me/variables/OPENAI_KEY \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+- Max 50 variables per account, 4 KB per value
+- Names: alphanumeric + underscores, 1-64 chars
+- `allowedUpstreams` (optional): restrict which domains can receive the variable
+
+## Proxy Routes
+
+Let static sites call authenticated APIs without exposing keys. Deploy a `.drophere/proxy.json` with your artifact:
+
+```json
+{
+  "routes": {
+    "/api/chat": {
+      "upstream": "https://api.openai.com/v1/chat/completions",
+      "headers": { "Authorization": "Bearer ${OPENAI_KEY}" }
+    },
+    "/api/db/*": {
+      "upstream": "https://db.example.com/api",
+      "headers": { "apikey": "${DB_KEY}" },
+      "rateLimit": "20/hour/ip"
+    }
+  }
+}
+```
+
+Client-side usage from your deployed app:
+```javascript
+const res = await fetch('/_proxy/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ model: 'gpt-4', messages: [...] })
+});
+```
+
+- `${VAR_NAME}` references are resolved from your service variables
+- Upstream must be HTTPS — credentials never leave the server
+- Wildcard routes (`/api/db/*`) append the remaining path to the upstream URL
+- Default rate limit: 100 requests/hour/ip per route
+- SSE streaming works transparently (great for LLM chat responses)
+- Max 20 routes, 10 MB request body limit
+
 ## Upload Size Limits
 
 |  | Per file | Per artifact (total) |
 |--|---------|---------------------|
-| Anonymous | 10 MB | 25 MB |
-| Authenticated | 50 MB | 200 MB |
+| Anonymous | 100 MB | 250 MB |
+| Authenticated | 1 GB | 5 GB |
 
 Exceeding a limit returns HTTP 413. The `size` field in each file manifest entry must be exact bytes.
 

@@ -118,7 +118,7 @@ POST /api/v1/artifact
       "headers": { "Content-Type": "text/html" }
     }
   ],
-  "limits": { "maxFileSize": 10485760, "maxArtifactSize": 26214400 },
+  "limits": { "maxFileSize": 104857600, "maxArtifactSize": 262144000 },
   "claimToken": "ct_xyz789..."
 }
 ```
@@ -130,14 +130,14 @@ POST /api/v1/artifact
 
 |  | Per file | Per artifact (total) |
 |--|---------|---------------------|
-| Anonymous | 10 MB | 25 MB |
-| Authenticated | 50 MB | 200 MB |
+| Anonymous | 100 MB | 250 MB |
+| Authenticated | 1 GB | 5 GB |
 
 Exceeding a limit returns **413** with `error`, `details`, and `limits` fields. The `size` field in each file entry must be the exact byte count — presigned URLs are locked to that size.
 
 Limits are also returned in the response body so clients can pre-validate:
 ```json
-{ "limits": { "maxFileSize": 10485760, "maxArtifactSize": 26214400 } }
+{ "limits": { "maxFileSize": 104857600, "maxArtifactSize": 262144000 } }
 ```
 
 **Rate limits:**
@@ -182,7 +182,7 @@ PUT /api/v1/artifact/:slug
   "skipped": [
     { "path": "style.css", "hash": "sha256:def..." }
   ],
-  "limits": { "maxFileSize": 52428800, "maxArtifactSize": 209715200 }
+  "limits": { "maxFileSize": 1073741824, "maxArtifactSize": 5368709120 }
 }
 ```
 
@@ -348,6 +348,236 @@ DELETE /api/v1/artifact/:slug
 **Response (200):**
 ```json
 { "slug": "abc123", "message": "Artifact deleted" }
+```
+
+### Set or Remove Password
+
+```
+PATCH /api/v1/artifact/:slug/password
+```
+
+**Auth:** Required (must own the artifact)
+
+**Body:**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| password | string or null | Yes | 8-128 chars to set, null to remove |
+
+**Response (200):**
+```json
+{ "slug": "abc123", "passwordProtected": true }
+```
+
+**Errors:**
+
+| Status | Error |
+|--------|-------|
+| 400 | Password must be 8-128 characters |
+| 403 | You do not own this artifact |
+| 404 | Artifact not found |
+
+Password stored as bcrypt hash. Changing or removing invalidates all existing sessions. Visitors see a password form; correct entry sets a 30-day `dh_password` cookie. Rate limited: 10 attempts/minute/IP. Password check runs before email-allowlist access control.
+
+### Duplicate Artifact
+
+```
+POST /api/v1/artifact/:slug/duplicate
+```
+
+**Auth:** Required (must own the artifact)
+
+Creates a server-side copy with a new slug. Rate limited same as artifact creation.
+
+Does NOT copy: password, access control settings, TTL, domain links, claim token.
+
+**Response (201):**
+```json
+{
+  "slug": "calm-reef-x9z1",
+  "sourceSlug": "bold-canvas-a7k2",
+  "versionId": "550e8400-e29b-41d4-a716-446655440000",
+  "siteUrl": "https://calm-reef-x9z1.drophere.cc/",
+  "files": 12
+}
+```
+
+**Errors:**
+
+| Status | Error |
+|--------|-------|
+| 403 | You do not own this artifact |
+| 404 | Artifact not found |
+| 410 | Source artifact has expired |
+
+### Refresh Upload URLs
+
+```
+POST /api/v1/artifact/:slug/uploads/refresh
+```
+
+**Auth:** Required (Bearer token or claimToken in body)
+
+Re-issues upload URLs for a pending version. Only returns URLs for files not yet uploaded to R2. Resets the 10-minute upload window.
+
+**Body (anonymous):**
+```json
+{ "claimToken": "64-char-hex" }
+```
+
+**Response (200):**
+```json
+{
+  "slug": "bold-canvas-a7k2",
+  "versionId": "550e8400-e29b-41d4-a716-446655440000",
+  "uploads": [
+    { "path": "app.js", "method": "PUT", "url": "https://...", "headers": { "Content-Type": "application/javascript" } }
+  ],
+  "alreadyUploaded": ["index.html", "style.css"],
+  "expiresIn": 600
+}
+```
+
+**Errors:**
+
+| Status | Error |
+|--------|-------|
+| 400 | No pending version / Version already finalized |
+| 403 | You do not own this artifact |
+| 404 | Artifact not found |
+
+---
+
+## Service Variables
+
+Encrypted server-side storage for API keys and secrets. Values are encrypted at rest (AES-256-GCM) and never returned via the API. Used by proxy routes to inject auth headers into upstream API calls.
+
+### Upsert Variable
+
+```
+PUT /api/v1/me/variables/:name
+```
+
+**Auth:** Required
+
+**Body:**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| value | string | Yes | Max 4096 bytes (4 KB) |
+| allowedUpstreams | string[] | No | Domain names this variable can be sent to |
+
+**Name validation:** `/^[A-Za-z0-9_]{1,64}$/` — alphanumeric + underscores, 1-64 characters.
+
+**Response (201 created / 200 updated):**
+```json
+{ "name": "OPENAI_KEY", "allowedUpstreams": ["api.openai.com"], "message": "Variable created" }
+```
+
+**Errors:**
+
+| Status | Error |
+|--------|-------|
+| 400 | Invalid name / Value too large / Invalid allowedUpstreams |
+| 400 | Maximum 50 variables per account |
+| 503 | Service variables are not configured (VARIABLES_ENCRYPTION_KEY missing) |
+
+### List Variables
+
+```
+GET /api/v1/me/variables
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "variables": [
+    { "name": "OPENAI_KEY", "allowedUpstreams": ["api.openai.com"], "createdAt": "2026-03-12T10:00:00Z", "updatedAt": "2026-03-12T10:00:00Z" },
+    { "name": "DB_KEY", "allowedUpstreams": null, "createdAt": "2026-03-12T10:00:00Z", "updatedAt": "2026-03-12T10:00:00Z" }
+  ]
+}
+```
+
+Values are **never** included in the response.
+
+### Delete Variable
+
+```
+DELETE /api/v1/me/variables/:name
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{ "name": "OPENAI_KEY", "message": "Variable deleted" }
+```
+
+---
+
+## Proxy Routes
+
+Static sites can call authenticated APIs via `/_proxy/*` paths without exposing credentials in client code. Deploy a `.drophere/proxy.json` file in your artifact.
+
+### Manifest Format
+
+Place `.drophere/proxy.json` in your artifact's files:
+
+```json
+{
+  "routes": {
+    "/api/chat": {
+      "upstream": "https://api.openai.com/v1/chat/completions",
+      "headers": { "Authorization": "Bearer ${OPENAI_KEY}" }
+    },
+    "/api/db/*": {
+      "upstream": "https://db.example.com/api",
+      "headers": { "apikey": "${DB_KEY}" },
+      "rateLimit": "20/hour/ip"
+    }
+  }
+}
+```
+
+### Route Matching
+
+- **Exact match:** `/api/chat` matches only `/api/chat`
+- **Wildcard:** `/api/db/*` matches `/api/db/anything` — the remaining path is appended to the upstream URL
+
+### Variable Resolution
+
+`${VAR_NAME}` references in `headers` values are resolved from service variables at request time. Variables are:
+- Decrypted server-side — client code never sees credentials
+- Scoped to the artifact owner's variables
+- Subject to `allowedUpstreams` enforcement (variable rejected if upstream domain doesn't match)
+
+### Rate Limiting
+
+Default: 100 requests/hour/IP per route. Override per route with `"rateLimit": "20/hour/ip"`.
+
+Format: `{count}/{second|minute|hour}/ip`
+
+### Security
+
+- `upstream` must use HTTPS — HTTP is rejected
+- `Set-Cookie` headers from upstream are stripped
+- Only `Content-Type` and `Accept` headers forwarded from client
+- Max request body: 10 MB
+- Max 20 routes per manifest
+- SSE (Server-Sent Events) streaming works transparently
+
+### Client Usage
+
+```javascript
+// From your deployed static site's client-side JavaScript
+const res = await fetch('/_proxy/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ model: 'gpt-4', messages: [{ role: 'user', content: 'Hello' }] })
+});
+const data = await res.json();
 ```
 
 ---
@@ -956,3 +1186,6 @@ Artifacts are served at `https://{slug}.drophere.cc/`. The edge worker handles:
 - **Custom domains:** `{domain}/{location}` resolves via links
 - **Auto-viewer:** If no `index.html`, renders a rich preview (image viewer, gallery, PDF viewer, code viewer, etc.)
 - **index.html:** If present, served as the entry point for the site
+- **SPA routing:** When `spaMode: true` is set in viewer metadata, unmatched paths serve `index.html` instead of 404 — enabling React, Vue, SvelteKit, and other SPA frameworks. Static assets are still served normally.
+- **Proxy routes:** Requests to `/_proxy/*` are forwarded to upstream APIs per `.drophere/proxy.json` manifest
+- **Password protection:** Password-protected artifacts show a password form before serving any content
