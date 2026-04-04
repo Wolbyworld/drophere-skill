@@ -181,8 +181,8 @@ Options:
 ## How It Works
 
 1. **Scan** — Hashes all files with SHA-256
-2. **Create/Update** — Sends file manifest to the API, receives presigned upload URLs
-3. **Upload** — PUTs each file to its presigned R2 URL (skips unchanged files)
+2. **Create/Update** — Sends file manifest to the API, receives upload URLs
+3. **Upload** — PUTs each file to its upload URL (skips unchanged files)
 4. **Finalize** — Marks the version as live
 
 State is saved to `.drophere/state.json` in the working directory. Re-running `publish.mjs` in the same directory automatically does an incremental deploy (only uploads changed files).

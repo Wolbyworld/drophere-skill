@@ -114,7 +114,7 @@ POST /api/v1/artifact
     {
       "path": "index.html",
       "method": "PUT",
-      "url": "https://r2-presigned-url...",
+      "url": "https://drophere.cc/api/v1/upload/abc123/550e8400-.../index.html",
       "headers": { "Content-Type": "text/html" }
     }
   ],
@@ -123,7 +123,7 @@ POST /api/v1/artifact
 }
 ```
 
-- `uploads` — presigned R2 URLs (10-min TTL). Upload each file with `PUT`.
+- `uploads` — upload URLs (10-min window). Upload each file with `PUT`.
 - `claimToken` — only returned for anonymous uploads. Store it to update/finalize later.
 
 **Upload size limits:**
@@ -133,7 +133,7 @@ POST /api/v1/artifact
 | Anonymous | 100 MB | 250 MB |
 | Authenticated | 1 GB | 5 GB |
 
-Exceeding a limit returns **413** with `error`, `details`, and `limits` fields. The `size` field in each file entry must be the exact byte count — presigned URLs are locked to that size.
+Exceeding a limit returns **413** with `error`, `details`, and `limits` fields. The `size` field in each file entry must be the exact byte count — the upload proxy validates Content-Length against the declared size.
 
 Limits are also returned in the response body so clients can pre-validate:
 ```json
@@ -175,7 +175,7 @@ PUT /api/v1/artifact/:slug
     {
       "path": "index.html",
       "method": "PUT",
-      "url": "https://r2-presigned-url...",
+      "url": "https://drophere.cc/api/v1/upload/abc123/660e8400-.../index.html",
       "headers": { "Content-Type": "text/html" }
     }
   ],
@@ -1021,7 +1021,7 @@ POST /api/v1/feedback
 **Body:**
 ```json
 {
-  "message": "presigned URL expired before upload finished",
+  "message": "upload URL expired before upload finished",
   "slug": "abc123",
   "source": "skill"
 }

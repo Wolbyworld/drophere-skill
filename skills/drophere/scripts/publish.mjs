@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// drophere.cc publish script — uploads static files via the 3-step presigned URL flow.
+// drophere.cc publish script — uploads static files via the 3-step upload flow.
 // Dependencies: Node.js 18+ (uses built-in crypto, fs, path, http, https)
 // Usage: node publish.mjs [OPTIONS] <directory-or-files...>
 //
@@ -445,7 +445,7 @@ async function main() {
 
   debug(`slug=${slug} versionId=${versionId} uploads=${uploads.length}`);
 
-  // Upload files to presigned URLs
+  // Upload files to upload URLs
   if (uploads.length > 0) {
     log(`Uploading ${uploads.length} file(s)...`);
     let uploadErrors = 0;
