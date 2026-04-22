@@ -46,6 +46,7 @@ function Download($url, $dest) {
 Download "$BASE_URL/skills/drophere/SKILL.md"              "$SKILL_DIR\SKILL.md"
 Download "$BASE_URL/skills/drophere/scripts/publish.mjs"   "$SKILL_DIR\scripts\publish.mjs"
 Download "$BASE_URL/skills/drophere/scripts/publish.sh"    "$SKILL_DIR\scripts\publish.sh"
+Download "$BASE_URL/skills/drophere/scripts/auth.mjs"      "$SKILL_DIR\scripts\auth.mjs"
 Download "$BASE_URL/skills/drophere/references/API.md"     "$SKILL_DIR\references\API.md"
 
 Write-Host ""

@@ -1,0 +1,32 @@
+{
+  "name": "drophere",
+  "version": "0.1.0",
+  "description": "Publish static files to drophere.cc for instant public hosting.",
+  "entrypoint": "scripts/publish.mjs",
+  "runtime": "node18",
+  "auth": {
+    "type": "magic_link",
+    "request": {
+      "entrypoint": "scripts/auth.mjs",
+      "args": ["login"],
+      "inputs": [
+        { "name": "email", "type": "string", "required": true }
+      ]
+    },
+    "verify": {
+      "entrypoint": "scripts/auth.mjs",
+      "args": ["verify"],
+      "inputs": [
+        { "name": "email", "type": "string", "required": true },
+        { "name": "code", "type": "string", "required": true, "pattern": "^[A-Z2-9]{4}-[A-Z2-9]{4}$" }
+      ],
+      "output": {
+        "format": "stdout_token",
+        "description": "A 64-char hex API key on stdout (no prefix, e.g. a1b2c3d4e5f6...). Host agents should trim trailing whitespace before storing."
+      }
+    },
+    "secret_name": "DROPHERE_API_KEY"
+  },
+  "declared_hosts": ["drophere.cc"],
+  "required_secrets": ["DROPHERE_API_KEY"]
+}

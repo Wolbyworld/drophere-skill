@@ -23,6 +23,7 @@ if [ ! -f "$DROPHERE_DIR/skills/drophere/scripts/publish.mjs" ] && [ ! -f "$DROP
   mkdir -p ~/.claude/skills/drophere/scripts ~/.claude/skills/drophere/references
   curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.mjs -o ~/.claude/skills/drophere/scripts/publish.mjs
   curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/publish.sh -o ~/.claude/skills/drophere/scripts/publish.sh
+  curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/auth.mjs -o ~/.claude/skills/drophere/scripts/auth.mjs
   curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/references/API.md -o ~/.claude/skills/drophere/references/API.md
   chmod +x ~/.claude/skills/drophere/scripts/publish.sh
   DROPHERE_DIR="$HOME/.claude/skills/drophere"
@@ -137,31 +138,51 @@ If the user's content appears internal, sensitive, or intended for a specific au
 
 **Anonymous (default):** No auth needed. Artifacts expire in 24 hours. A `claimToken` is saved locally in `.drophere/state.json` for updates.
 
-**Authenticated:** Artifacts persist indefinitely. Three ways to authenticate (checked in order):
+**Authenticated:** Artifacts persist indefinitely. API keys are 64-character hex strings with no prefix (e.g. `a1b2c3d4e5f6...`). Three ways to authenticate (checked in order):
 
-1. **Flag:** `--api-key dp_abc123...`
-2. **Environment variable:** `export DROPHERE_API_KEY=dp_abc123...`
-3. **Credentials file:** `~/.drophere/credentials` containing `API_KEY=dp_abc123...`
+1. **Flag:** `--api-key a1b2c3d4e5f6...`
+2. **Environment variable:** `export DROPHERE_API_KEY=a1b2c3d4e5f6...`
+3. **Credentials file:** `~/.drophere/credentials` containing `API_KEY=a1b2c3d4e5f6...`
 
 ### Getting an API Key
 
-Request a magic-link code, then verify it:
+**If you are an AI agent running this skill and `DROPHERE_API_KEY` is not set, or you hit a 401 / unauthenticated error from `publish.mjs` or any authenticated endpoint, run the auth flow *first* before trying again.** The dedicated auth script handles both halves of the magic-link exchange:
 
 ```bash
-# 1. Request code (sent to your email)
+AUTH="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/drophere/scripts/auth.mjs}"
+AUTH="${AUTH:-$HOME/.claude/skills/drophere/scripts/auth.mjs}"
+
+# 1. Request a magic-link code (sent to the user's email)
+node "$AUTH" login you@example.com
+# stderr: "Code sent. Expires at ..."
+# stdout: {"success":true,"requiresCodeEntry":true,"expiresAt":"..."}
+
+# 2. Ask the user for the XXXX-XXXX code they received (8 alphanumerics plus
+#    a dash, e.g. ABCD-EFGH; case-insensitive), then exchange it:
+node "$AUTH" verify you@example.com ABCD-EFGH
+# stderr: "Success. API key retrieved. Store it as DROPHERE_API_KEY."
+# stdout: a1b2c3d4e5f6...   ← bare 64-char hex token, one line, ready to capture
+
+# 3. Host agents (e.g. LuziaClaw) should save this as the per-user secret
+#    DROPHERE_API_KEY. publish.mjs reads it from process.env.DROPHERE_API_KEY.
+#    For local CLI use, persist it to ~/.drophere/credentials:
+mkdir -p ~/.drophere
+echo "API_KEY=a1b2c3d4e5f6..." > ~/.drophere/credentials
+```
+
+The `auth.mjs` script prints progress on stderr and the final payload on stdout, so `$(node "$AUTH" verify ... | tr -d '\n')` captures the API key cleanly. Exit code is 0 on success, 1 on any error (bad email, expired code, network failure, etc.).
+
+Raw curl equivalents (if you need to bypass the script for debugging):
+
+```bash
 curl -X POST https://drophere.cc/api/auth/agent/request-code \
   -H "Content-Type: application/json" \
   -d '{"email": "you@example.com"}'
 
-# 2. Verify code and get API key
 curl -X POST https://drophere.cc/api/auth/agent/verify-code \
   -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com", "code": "123456"}'
-# Returns: {"apiKey": "dp_abc123...", ...}
-
-# 3. Save it
-mkdir -p ~/.drophere
-echo "API_KEY=dp_abc123..." > ~/.drophere/credentials
+  -d '{"email": "you@example.com", "code": "ABCD-EFGH"}'
+# Returns: {"apiKey": "a1b2c3d4e5f6...", ...}   (64-char hex, no prefix)
 ```
 
 ## Publish Script Options
