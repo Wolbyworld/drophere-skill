@@ -64,6 +64,28 @@ The `apiKey` is permanent — store it securely and use it as a Bearer token for
 | 400 | Invalid email address |
 | 401 | Invalid or expired code |
 
+### Rotate API Key
+
+If your key leaks, atomically swap it.
+
+```
+POST /api/v1/me/api-key/rotate
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "apiKey": "<new 64-hex>",
+  "message": "API key rotated. All clients using the old key will start returning 401..."
+}
+```
+
+The old key starts returning `401` immediately on every authenticated REST endpoint and on the MCP surfaces. A confirmation email is sent best-effort. Rate-limited to 5/hour/user. **Not exposed via MCP** — agents can't rotate their own credentials.
+
+Recovery from attacker-initiated rotation: re-run the magic-link flow to get whatever key is currently in the DB, then rotate again. The magic-link channel is gated on email control.
+
 ---
 
 ## Artifacts
