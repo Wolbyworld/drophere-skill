@@ -330,12 +330,16 @@ GET /api/v1/artifacts
       "status": "active",
       "currentVersionId": "550e8400-...",
       "pendingVersionId": null,
+      "viewerMetadata": { "title": "My Project" },
+      "title": "My Project",
       "expiresAt": null,
       "updatedAt": "2026-03-11T10:01:00.000Z"
     }
   ]
 }
 ```
+
+`viewerMetadata` is the full JSON blob (`null` when unset). `title` is a convenience extraction of `viewerMetadata.title` (trimmed; `null` when missing or empty).
 
 ### Delete Artifact
 
