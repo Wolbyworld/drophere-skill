@@ -356,6 +356,18 @@ const res = await fetch('/_proxy/api/chat', {
 - SSE streaming works transparently (great for LLM chat responses)
 - Max 20 routes, 10 MB request body limit
 
+## Visit Counter
+
+Drop a counter into any hosted site. The script fills `[data-drophere-visits=METRIC]` elements with the raw number from a same-origin endpoint — no formatting applied, so you can wrap and style however you want.
+
+```html
+<p>Visits: <span data-drophere-visits="total">—</span></p>
+<p>Today: <span data-drophere-visits="today">—</span></p>
+<script src="https://drophere.cc/c/visits.js" defer></script>
+```
+
+Available metrics: `total` (lifetime), `today`, `last7d`, `unique7d` (approximate — visitor hash rotates daily for privacy). Raw JSON also at `/_drophere/visits` on the artifact's host, or `GET /api/v1/artifact/:slug/visits` (auth required) for owner dashboards.
+
 ## Upload Size Limits
 
 |  | Per file | Per artifact (total) |
