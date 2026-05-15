@@ -5,6 +5,8 @@ description: >
   "deploy to a URL", "host a static site", "share an HTML file publicly",
   "upload to drophere", "protect a page", "restrict access",
   "add email access control", "make page private", "share privately",
+  "enable comments", "add anchored comments", "review this artifact",
+  "collaborate on a drophere artifact", "make this artifact commentable",
   or needs to make local files accessible via a public URL.
 ---
 
@@ -133,6 +135,45 @@ curl -s "https://drophere.cc/api/v1/skill/docs"
 If the user's content appears internal, sensitive, or intended for a specific audience (e.g., "for the team", "client review", "internal dashboard", company data), ask whether to restrict access before publishing:
 
 > "Should I restrict access to this? I can limit viewing to specific emails or an email domain (e.g., everyone @acme.com)."
+
+## Collaboration Comments
+
+Drophere artifacts can expose an isolated reader-style collaboration layer for anchored comments, replies, pasted image attachments, and owner/agent moderation. This can be enabled on existing artifacts without republishing because the layer is injected at serve time.
+
+Use MCP tools first when they are available:
+
+- `drophere_set_collaboration` — enable/disable the layer and set the comment policy
+- `drophere_list_comments` — list threads and current settings
+- `drophere_add_comment` — create an anchored thread
+- `drophere_update_comment` — reply, resolve, or reopen
+- `drophere_delete_comment` — soft-delete a thread or message
+
+Enable collaboration with the default authenticated-comment policy:
+
+```json
+{
+  "slug": "abc123",
+  "enabled": true,
+  "commentPolicy": "authenticated"
+}
+```
+
+Policy choices:
+
+- `authenticated` — any logged-in Drophere user can comment
+- `anyone` — anyone who can view the artifact can comment
+- `same_domain` — only verified users from the owner domain or explicit `commentDomain` can comment; consumer domains such as `gmail.com` are rejected
+
+REST fallback when MCP tools are unavailable:
+
+```bash
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/collaboration" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"commentPolicy":"authenticated"}'
+```
+
+For private/client review pages, keep artifact visibility/password/email gates as the outer view gate and choose the least-broad comment policy that fits the audience.
 
 ## Authentication
 

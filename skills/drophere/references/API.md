@@ -324,6 +324,11 @@ GET /api/v1/artifact/:slug
   "status": "active",
   "currentVersionId": "550e8400-...",
   "pendingVersionId": null,
+  "collaboration": {
+    "enabled": false,
+    "commentPolicy": "authenticated",
+    "commentDomain": null
+  },
   "viewerMetadata": null,
   "expiresAt": null,
   "createdAt": "2026-03-11T10:00:00.000Z",
@@ -352,6 +357,11 @@ GET /api/v1/artifacts
       "status": "active",
       "currentVersionId": "550e8400-...",
       "pendingVersionId": null,
+      "collaboration": {
+        "enabled": false,
+        "commentPolicy": "authenticated",
+        "commentDomain": null
+      },
       "viewerMetadata": { "title": "My Project" },
       "title": "My Project",
       "expiresAt": null,
@@ -361,7 +371,7 @@ GET /api/v1/artifacts
 }
 ```
 
-`viewerMetadata` is the full JSON blob (`null` when unset). `title` is a convenience extraction of `viewerMetadata.title` (trimmed; `null` when missing or empty).
+`viewerMetadata` is the full JSON blob (`null` when unset). `title` is a convenience extraction of `viewerMetadata.title` (trimmed; `null` when missing or empty). `collaboration` is included so owners and agents can discover whether the comment layer is enabled before calling the comment APIs.
 
 ### Delete Artifact
 
@@ -674,6 +684,91 @@ GET /api/v1/artifact/:slug/access
   "allowedDomains": ["acme.com"]
 }
 ```
+
+---
+
+## Collaboration Comments
+
+Artifacts can expose a private Drophere-hosted collaboration layer for anchored comments, replies, moderation, pasted image attachments, and agent access. Artifact visibility remains the outer read gate; comment write policy is configured separately.
+
+### Set Collaboration
+
+```
+PATCH /api/v1/artifact/:slug/collaboration
+```
+
+**Auth:** Required (must be artifact owner)
+
+**Body:**
+```json
+{
+  "enabled": true,
+  "commentPolicy": "same_domain",
+  "commentDomain": "acme.com"
+}
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `enabled` | `boolean` | Yes | Enables the isolated comment layer |
+| `commentPolicy` | `string` | No | `"authenticated"` default, `"anyone"`, or `"same_domain"` |
+| `commentDomain` | `string \| null` | No | Required for `same_domain` unless owner email has a valid organization domain |
+
+Consumer domains such as `gmail.com` are rejected for `same_domain`.
+
+### List Comments
+
+```
+GET /api/v1/artifact/:slug/comments?status=open
+```
+
+**Auth:** Viewer token from the artifact collaboration layer, or owner Bearer token.
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "settings": {
+    "enabled": true,
+    "commentPolicy": "authenticated",
+    "commentDomain": null
+  },
+  "comments": [
+    {
+      "id": "5fdd...",
+      "status": "open",
+      "anchorText": "important paragraph",
+      "anchorStatus": "current",
+      "messages": [
+        {
+          "id": "8f2c...",
+          "body": "Can we clarify this?",
+          "author": { "name": "Alice", "role": "owner" },
+          "attachments": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Comment Actions
+
+```
+POST   /api/v1/artifact/:slug/comments
+POST   /api/v1/artifact/:slug/comments/:threadId/reply
+PATCH  /api/v1/artifact/:slug/comments/:threadId
+DELETE /api/v1/artifact/:slug/comments/:threadId
+DELETE /api/v1/artifact/:slug/comments/:threadId/messages/:messageId
+POST   /api/v1/artifact/:slug/comments/attachments
+GET    /api/v1/artifact/:slug/comments/attachments/:attachmentId
+```
+
+Owners and owner-authenticated agents can moderate every thread. Commenters can delete only their own undeleted messages. Attachments are served through Drophere gates and never as direct public bucket URLs.
+
+Agents should prefer the MCP tools for parity: `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment`, and `drophere_set_collaboration`.
+
+The legacy `/annotations` owner API remains a compatibility alias backed by the threaded comment store.
 
 ---
 

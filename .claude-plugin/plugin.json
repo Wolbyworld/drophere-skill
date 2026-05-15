@@ -1,7 +1,7 @@
 {
   "name": "drophere",
   "version": "0.1.0",
-  "description": "Publish static files to drophere.cc for instant public hosting",
+  "description": "Publish static files to drophere.cc, restrict access, and enable artifact collaboration comments",
   "skills": "./skills/",
   "commands": "./commands/"
 }

@@ -35,6 +35,8 @@ present_files drophere.plugin
 - Publish HTML, images, PDFs, or entire directories to the web instantly
 - Incremental deploys — only uploads changed files
 - Anonymous publishing (24h TTL) or authenticated for permanent hosting
+- Access controls for private/client review pages
+- Collaboration comments with anchored threads, replies, image attachments, and owner/agent moderation
 - Auto-viewer for rich previews of images, PDFs, and other media
 
 ## Usage
