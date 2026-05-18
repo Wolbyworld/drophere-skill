@@ -324,6 +324,11 @@ GET /api/v1/artifact/:slug
   "status": "active",
   "currentVersionId": "550e8400-...",
   "pendingVersionId": null,
+  "access": {
+    "visibility": "public",
+    "allowedEmails": null,
+    "allowedDomains": null
+  },
   "collaboration": {
     "enabled": false,
     "commentPolicy": "authenticated",
@@ -357,6 +362,11 @@ GET /api/v1/artifacts
       "status": "active",
       "currentVersionId": "550e8400-...",
       "pendingVersionId": null,
+      "access": {
+        "visibility": "public",
+        "allowedEmails": null,
+        "allowedDomains": null
+      },
       "collaboration": {
         "enabled": false,
         "commentPolicy": "authenticated",
@@ -371,7 +381,7 @@ GET /api/v1/artifacts
 }
 ```
 
-`viewerMetadata` is the full JSON blob (`null` when unset). `title` is a convenience extraction of `viewerMetadata.title` (trimmed; `null` when missing or empty). `collaboration` is included so owners and agents can discover whether the comment layer is enabled before calling the comment APIs.
+`viewerMetadata` is the full JSON blob (`null` when unset). `title` is a convenience extraction of `viewerMetadata.title` (trimmed; `null` when missing or empty). `access` and `collaboration` are included so owners and agents can discover the current view gate and comment layer before calling the access or comment APIs.
 
 ### Delete Artifact
 
