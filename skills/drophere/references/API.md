@@ -731,7 +731,8 @@ GET /api/v1/artifact/:slug/comments?status=open
   "settings": {
     "enabled": true,
     "commentPolicy": "authenticated",
-    "commentDomain": null
+    "commentDomain": null,
+    "viewer": { "canComment": true, "message": null }
   },
   "comments": [
     {
@@ -751,6 +752,8 @@ GET /api/v1/artifact/:slug/comments?status=open
   ]
 }
 ```
+
+`settings.viewer.canComment` and each thread's `capabilities.canReply` reflect the current viewer's comment policy eligibility. When `canComment` is false, `message` contains the reason to show in the viewer UI.
 
 ### Comment Actions
 
