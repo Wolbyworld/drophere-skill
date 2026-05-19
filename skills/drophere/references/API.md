@@ -111,8 +111,11 @@ POST /api/v1/artifact
   "viewer": {
     "title": "My Site",
     "description": "A demo page",
-    "ogImagePath": "og.png"
-  }
+    "ogImagePath": "og.png",
+    "spaMode": false,
+    "markdownDownload": false
+  },
+  "source": "cli"
 }
 ```
 
@@ -124,7 +127,8 @@ POST /api/v1/artifact
 | `files[].contentType` | `string` | Yes | MIME type |
 | `files[].hash` | `string` | No | SHA-256 hash for incremental deploys |
 | `ttlSeconds` | `number` | No | Expiry for authenticated users. Anonymous always = 24h |
-| `viewer` | `ViewerMetadata` | No | Title, description, OG image for auto-viewer |
+| `viewer` | `ViewerMetadata` | No | `title`, `description`, `ogImagePath`, `spaMode`, `markdownDownload` |
+| `source` | `string` | No | Client/source label, max 100 chars. Also accepted via `x-drophere-client` header. |
 
 **Response (201):**
 ```json
@@ -165,6 +169,39 @@ Limits are also returned in the response body so clients can pre-validate:
 **Rate limits:**
 - Authenticated: 60 creates per hour
 - Anonymous: 5 creates per hour (per IP)
+
+### Upload File
+
+Upload each file to the corresponding URL returned from create, update, or refresh.
+
+```
+PUT /api/v1/upload/:slug/:versionId/:filePath
+```
+
+**Auth:** Capability URL. No Bearer token required; the `slug` + `versionId` + path identify a pending upload slot.
+
+Headers:
+
+| Header | Required | Notes |
+|--------|----------|-------|
+| `Content-Type` | Recommended | Should match the manifest entry's content type |
+| `Content-Length` | Recommended | If present, must not exceed the manifest entry's declared size |
+
+**Response (200):**
+```json
+{ "ok": true, "path": "index.html" }
+```
+
+The upload window is 10 minutes. If it expires before all files are uploaded, call `POST /api/v1/artifact/:slug/uploads/refresh`.
+
+**Errors:**
+| Status | Error |
+|--------|-------|
+| 400 | Invalid version ID or empty body |
+| 403 | Upload window expired |
+| 404 | Version not found, already finalized, or file not in manifest |
+| 413 | Uploaded body exceeds declared file size |
+| 502 | Upload to storage failed |
 
 ### Update Artifact (Incremental Deploy)
 
@@ -280,7 +317,7 @@ POST /api/v1/artifact/:slug/claim
 
 ### Update Viewer Metadata
 
-Update the title, description, or OG image for auto-viewer rendering. Has no effect if the artifact contains an `index.html`.
+Update viewer metadata. `title`, `description`, and `ogImagePath` affect auto-viewer rendering when there is no `index.html`. `spaMode` enables index fallback for client-side routers. `markdownDownload` enables opt-in `?format=md` downloads for HTML/Markdown artifact pages.
 
 ```
 PATCH /api/v1/artifact/:slug/metadata
@@ -332,7 +369,8 @@ GET /api/v1/artifact/:slug
   "collaboration": {
     "enabled": false,
     "commentPolicy": "authenticated",
-    "commentDomain": null
+    "commentDomain": null,
+    "commentAllowedEmails": null
   },
   "viewerMetadata": null,
   "expiresAt": null,
@@ -370,7 +408,8 @@ GET /api/v1/artifacts
       "collaboration": {
         "enabled": false,
         "commentPolicy": "authenticated",
-        "commentDomain": null
+        "commentDomain": null,
+        "commentAllowedEmails": null
       },
       "viewerMetadata": { "title": "My Project" },
       "title": "My Project",
@@ -695,6 +734,58 @@ GET /api/v1/artifact/:slug/access
 }
 ```
 
+### Set View and Comment Permissions Atomically
+
+```
+PATCH /api/v1/artifact/:slug/permissions
+```
+
+**Auth:** Required (must be artifact owner)
+
+Updates artifact view access and collaboration comment settings in one row update. Use this when an agent needs to change both gates without leaving an intermediate state.
+
+**Body:**
+```json
+{
+  "access": {
+    "visibility": "restricted",
+    "allowedEmails": ["alice@acme.com"],
+    "allowedDomains": ["acme.com"]
+  },
+  "collaboration": {
+    "enabled": true,
+    "commentPolicy": "specific_accounts",
+    "commentAllowedEmails": ["reviewer@acme.com"]
+  }
+}
+```
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "access": {
+    "visibility": "restricted",
+    "allowedEmails": ["alice@acme.com"],
+    "allowedDomains": ["acme.com"]
+  },
+  "collaboration": {
+    "enabled": true,
+    "commentPolicy": "specific_accounts",
+    "commentDomain": null,
+    "commentAllowedEmails": ["reviewer@acme.com"]
+  }
+}
+```
+
+**Errors:**
+| Status | Error |
+|--------|-------|
+| 400 | Invalid access or collaboration settings |
+| 403 | You do not own this artifact |
+| 404 | Artifact not found |
+| 410 | Artifact has expired |
+
 ---
 
 ## Collaboration Comments
@@ -721,8 +812,9 @@ PATCH /api/v1/artifact/:slug/collaboration
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `enabled` | `boolean` | Yes | Enables the isolated comment layer |
-| `commentPolicy` | `string` | No | `"authenticated"` default, `"anyone"`, or `"same_domain"` |
-| `commentDomain` | `string \| null` | No | Required for `same_domain` unless owner email has a valid organization domain |
+| `commentPolicy` | `string` | No | `"authenticated"` default, `"anyone"`, `"same_domain"`, or `"specific_accounts"` |
+| `commentDomain` | `string | null` | No | Required for `same_domain` unless owner email has a valid organization domain |
+| `commentAllowedEmails` | `string[] | null` | No | Required for `specific_accounts`; entries must be Drophere account emails |
 
 Consumer domains such as `gmail.com` are rejected for `same_domain`.
 
@@ -742,6 +834,7 @@ GET /api/v1/artifact/:slug/comments?status=open
     "enabled": true,
     "commentPolicy": "authenticated",
     "commentDomain": null,
+    "commentAllowedEmails": null,
     "viewer": { "canComment": true, "message": null }
   },
   "comments": [
@@ -781,7 +874,16 @@ Owners and owner-authenticated agents can moderate every thread. Commenters can 
 
 Agents should prefer the MCP tools for parity: `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment`, and `drophere_set_collaboration`.
 
-The legacy `/annotations` owner API remains a compatibility alias backed by the threaded comment store.
+### Legacy Annotation Compatibility
+
+These owner-only routes remain as compatibility aliases backed by the threaded comment store:
+
+```
+GET   /api/v1/artifact/:slug/annotations?status=open
+PATCH /api/v1/artifact/:slug/annotations/:id
+```
+
+`status` may be `open`, `resolved`, or `all` on reads. Patch accepts `{ "status": "open" }` or `{ "status": "resolved" }`.
 
 ---
 
@@ -854,17 +956,19 @@ GET /api/v1/skill/docs
 
 **Auth:** None
 
-Returns a structured list of all API capabilities. Useful for agents to discover available features without reinstalling the skill.
+Returns a compact list of API capabilities. Useful for agents to discover available features without reinstalling the skill or loading the full reference.
 
 **Response (200):**
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "capabilities": [
     { "name": "publish", "summary": "Upload static files to the web instantly", "endpoints": [...] },
-    { "name": "access-control", "summary": "Restrict who can view artifacts by email or domain", "endpoints": [...] }
+    { "name": "collaboration", "summary": "Enable anchored comments, replies, moderation, and attachments", "endpoints": [...] }
   ],
-  "docsUrl": "https://drophere.cc/skill/references/API.md"
+  "docsUrl": "https://drophere.cc/skill/references/API.md",
+  "markdownDocsUrl": "https://drophere.cc/skill/references/API.md",
+  "htmlDocsUrl": "https://docs.drophere.cc/"
 }
 ```
 
@@ -1176,6 +1280,21 @@ POST /api/v1/feedback
 
 ---
 
+## Slack Webhooks
+
+These endpoints are called by Slack, not by regular API clients. Requests must include a valid Slack signature.
+
+```
+POST /api/slack/events
+POST /api/slack/interact
+```
+
+`/api/slack/events` handles Slack URL verification, app mentions, and DM/group-DM message events. `/api/slack/interact` handles the message shortcut callback.
+
+Slack-hosted artifacts are anonymous. By default they are restricted to the workspace's configured email domains; a `--public` mention option can publish without that restriction.
+
+---
+
 ## Key-Value Store
 
 Per-artifact key-value storage, accessible from the artifact's own origin. No authentication required — designed for public read/write from hosted apps (e.g., game leaderboards).
@@ -1266,7 +1385,7 @@ Returns up to 1000 keys. Rate-limited at the write tier (30/min).
 
 ### Key Validation
 
-Keys must match: `^[a-zA-Z0-9._\-:/]{1,480}$`
+Keys must match: `^[a-zA-Z0-9._-:/]{1,480}$`
 
 Valid: `score`, `game.level-1_data`, `leaderboard/level:1`
 Invalid: empty string, spaces, `../etc/passwd`, unicode, `<script>`, keys > 480 chars
@@ -1281,6 +1400,132 @@ Access-Control-Allow-Headers: Content-Type
 ```
 
 `OPTIONS` requests return 204 with CORS headers (preflight support).
+
+---
+
+## MCP Server
+
+drophere.cc exposes a native Model Context Protocol server at:
+
+```
+https://drophere.cc/mcp
+https://drophere.cc/mcp/<apiKey>
+```
+
+Use the bearer-header form when the client supports custom headers:
+
+```json
+{
+  "mcpServers": {
+    "drophere": {
+      "url": "https://drophere.cc/mcp",
+      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+    }
+  }
+}
+```
+
+The path-token form is available for clients that cannot set headers. Treat that URL as a secret.
+
+### MCP Tools
+
+| Area | Tools |
+|------|-------|
+| Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_get_artifact_access` |
+| Artifact write | `drophere_create_artifact`, `drophere_update_artifact`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_delete_artifact` |
+| Upload | `drophere_upload_file` |
+| Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
+| Collaboration | `drophere_set_collaboration`, `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment` |
+| Handles/links | `drophere_set_handle`, `drophere_get_handle`, `drophere_delete_handle`, `drophere_set_link`, `drophere_get_link`, `drophere_list_links`, `drophere_delete_link` |
+| Variables | `drophere_set_variable`, `drophere_list_variables`, `drophere_delete_variable` |
+| KV store | `drophere_kv_get`, `drophere_kv_set`, `drophere_kv_list`, `drophere_kv_delete` |
+
+API-key rotation is deliberately not exposed via MCP.
+
+---
+
+## Visit Counters
+
+Artifacts expose same-origin visit counts for public display and an owner API for dashboards.
+
+### Embeddable Script
+
+```html
+<p><span data-drophere-visits="total">0</span> visits</p>
+<p><span data-drophere-visits="today">0</span> today</p>
+<script src="https://drophere.cc/c/visits.js" defer></script>
+```
+
+The script fetches `/_drophere/visits` from the artifact host and fills matching elements. Metrics: `total`, `today`, `last7d`, `unique7d`.
+
+### Same-Origin Endpoint
+
+```
+GET /_drophere/visits
+```
+
+Inherits the artifact's password and email access gates.
+
+**Response (200):**
+```json
+{
+  "total": 12483,
+  "today": 142,
+  "last7d": 1109,
+  "unique7d": 734
+}
+```
+
+### Owner API
+
+```
+GET /api/v1/artifact/:slug/visits
+```
+
+**Auth:** Required (must own the artifact)
+
+Returns the same JSON shape as `/_drophere/visits`.
+
+---
+
+## Download as Markdown
+
+Artifact HTML can opt into agent-friendly Markdown downloads. This is off by default.
+
+Enable at create time:
+
+```json
+{
+  "files": [...],
+  "viewer": { "markdownDownload": true }
+}
+```
+
+Enable later:
+
+```json
+{
+  "viewerMetadata": { "markdownDownload": true }
+}
+```
+
+When enabled, append `?format=md` to any artifact HTML path:
+
+```
+GET https://abc123.drophere.cc/?format=md
+GET https://abc123.drophere.cc/docs/guide.html?format=md
+```
+
+Markdown sources (`.md`, `.markdown`, or `text/markdown`) are served verbatim with attachment headers. HTML sources are converted best-effort.
+
+Limits and errors:
+
+| Status | Meaning |
+|--------|---------|
+| 404 | `markdownDownload` is not enabled or the source file does not exist |
+| 413 | HTML input exceeds 2 MB |
+| 415 | Source is neither HTML nor Markdown |
+| 429 | Conversion rate limit exceeded (30/min/IP/slug) |
 
 ---
 
