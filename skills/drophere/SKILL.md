@@ -163,6 +163,7 @@ Policy choices:
 - `authenticated` — any logged-in Drophere user can comment
 - `anyone` — anyone who can view the artifact can comment
 - `same_domain` — only verified users from the owner domain or explicit `commentDomain` can comment; consumer domains such as `gmail.com` are rejected
+- `specific_accounts` — only the listed Drophere account emails in `commentAllowedEmails` can comment
 
 REST fallback when MCP tools are unavailable:
 
@@ -172,6 +173,8 @@ curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/collaboration" \
   -H "Content-Type: application/json" \
   -d '{"enabled":true,"commentPolicy":"authenticated"}'
 ```
+
+When changing both view access and comment permissions from an owner/admin surface, prefer the atomic `PATCH /api/v1/artifact/${SLUG}/permissions` endpoint and use its readback as the source of truth.
 
 For private/client review pages, keep artifact visibility/password/email gates as the outer view gate and choose the least-broad comment policy that fits the audience.
 
