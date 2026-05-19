@@ -88,6 +88,153 @@ Recovery from attacker-initiated rotation: re-run the magic-link flow to get wha
 
 ---
 
+## Billing
+
+### Plans
+
+Return the public paywall plan definitions and upgrade copy.
+
+```
+GET /api/v1/billing/plans
+```
+
+**Auth:** Not required
+
+**Response (200):**
+```json
+{
+  "plans": [
+    {
+      "id": "unlimited",
+      "name": "Unlimited",
+      "description": "Higher-volume publishing for persistent artifacts.",
+      "features": ["Unlimited persistent artifacts"],
+      "price": "$4.99/month"
+    },
+    {
+      "id": "secure",
+      "name": "Secure",
+      "description": "Security-focused publishing with collaboration and protected access controls.",
+      "features": ["Unlimited persistent artifacts", "Secure access controls", "Collaboration", "Service variables", "Custom domains"],
+      "price": "$9.99/month"
+    }
+  ]
+}
+```
+
+### Status
+
+Return the authenticated account's plan, quota usage, feature flags, and upgrade options.
+
+```
+GET /api/v1/billing/status
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "plan": "free_token",
+  "subscriptionStatus": null,
+  "usage": {
+    "persistentArtifacts": 3,
+    "persistentArtifactLimit": 10
+  },
+  "features": {
+    "apiAndMcp": true,
+    "temporaryArtifacts": true,
+    "persistentArtifacts": true,
+    "unlimitedArtifacts": false,
+    "secureAccessControls": false,
+    "collaboration": false,
+    "serviceVariables": false,
+    "customDomains": false
+  },
+  "upgradeOptions": [
+    {
+      "plan": "unlimited",
+      "price": "$4.99/month",
+      "checkoutEndpoint": "/api/v1/billing/checkout",
+      "accountUrl": "https://drophere.cc/account?upgrade=unlimited",
+      "unlocks": ["Unlimited persistent artifacts"]
+    }
+  ]
+}
+```
+
+### Checkout
+
+Create a Stripe Checkout Session for a paid plan. Agents should only call this after explicit user confirmation.
+
+```
+POST /api/v1/billing/checkout
+```
+
+**Auth:** Required
+
+**Body:**
+```json
+{ "plan": "secure" }
+```
+
+`plan` must be `unlimited` or `secure`.
+
+**Response (200):**
+```json
+{
+  "url": "https://checkout.stripe.com/...",
+  "id": "cs_test_..."
+}
+```
+
+### Portal
+
+Create a Stripe billing portal session for the authenticated account.
+
+```
+POST /api/v1/billing/portal
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "url": "https://billing.stripe.com/..."
+}
+```
+
+### Paywall Errors
+
+Paid-feature gates return HTTP 402 with a structured error. Agents should present `agentMessage`, ask the human whether to upgrade, then call checkout only if the human confirms.
+
+```json
+{
+  "error": "PAYWALL",
+  "code": "PLAN_REQUIRED",
+  "message": "The collaboration feature requires the secure plan.",
+  "agentMessage": "The collaboration feature requires the secure plan. Upgrade to secure ($9.99/month) at https://drophere.cc/account?upgrade=secure.",
+  "billing": {
+    "plan": "free_token",
+    "usage": {
+      "persistentArtifacts": 10,
+      "persistentArtifactLimit": 10
+    }
+  },
+  "upgrade": {
+    "plan": "secure",
+    "price": "$9.99/month",
+    "checkoutEndpoint": "/api/v1/billing/checkout"
+  },
+  "retry": { "action": "collaboration" }
+}
+```
+
+Free Token includes API and MCP access, unlimited 24-hour artifacts, and 10 persistent artifacts. Unlimited unlocks unlimited persistent artifacts. Secure unlocks access control, password protection, collaboration, service variables, and custom domains.
+
+---
+
 ## Artifacts
 
 ### Create Artifact
