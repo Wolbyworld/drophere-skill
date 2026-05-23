@@ -56,9 +56,11 @@ The script outputs the site URL to stdout. All progress goes to stderr.
 
 ## MCP Publishing
 
-Use MCP tools first when they are available. For small static/text sites, prefer `drophere_create_static_site`: pass file content strings with `path`, `content`, and `contentType`; the tool computes byte sizes internally.
+Use MCP tools first when they are available. For small static/text artifacts, prefer `drophere_publish_artifact`: pass file content strings with `path`, `contentText` or `content`, and `contentType`; the tool computes byte sizes internally. `drophere_create_static_site` is the compatibility alias for the same one-shot flow.
 
-Use `drophere_create_artifact` or `drophere_update_artifact` when you need large files, binary files, or incremental deploy control. Their responses separate `mcpUploads` (call `drophere_upload_file`) from `directHttpUploads` (raw HTTP `PUT` fallback).
+Use `drophere_create_artifact` or `drophere_update_artifact` when you need large files, binary files, or incremental deploy control. Their responses separate `mcpUploads` (call `drophere_upload_file` with `contentText` for text or `contentBase64` for bytes) from `directHttpUploads` (raw HTTP `PUT` fallback), and include `siteUrlStatus`, `operationState`, and cleanup hints for pending versions.
+
+Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-file upload status. Publish uploaded pending versions with `drophere_publish_uploaded_version`; `drophere_finalize_artifact` remains available as the compatibility name.
 
 Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 

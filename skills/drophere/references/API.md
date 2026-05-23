@@ -1116,7 +1116,8 @@ Returns a compact list of API capabilities. Useful for agents to discover availa
   "version": "0.3.0",
   "capabilities": [
     { "name": "publish", "summary": "Upload static files to the web instantly", "endpoints": [...] },
-    { "name": "collaboration", "summary": "Enable anchored comments, replies, moderation, and attachments", "endpoints": [...] }
+    { "name": "collaboration", "summary": "Enable anchored comments, replies, moderation, and attachments", "endpoints": [...] },
+    { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_publish_uploaded_version"] }
   ],
   "docsUrl": "https://drophere.cc/skill/references/API.md",
   "markdownDocsUrl": "https://drophere.cc/skill/references/API.md",
@@ -1581,13 +1582,20 @@ The path-token form is available for clients that cannot set headers. Treat that
 
 ### MCP Publishing
 
-For small static/text sites, prefer `drophere_create_static_site`. It accepts file content strings (`path`, `content`, `contentType`) and computes byte sizes internally, so clients do not need to pre-count bytes or base64 each file.
+For small static/text artifacts, prefer `drophere_publish_artifact`. It accepts file content strings (`path`, `contentText` or `content`, `contentType`) and computes byte sizes internally, so clients do not need to pre-count bytes or base64 each file. `drophere_create_static_site` remains available as a compatibility alias for the same one-shot flow.
 
 Use `drophere_create_artifact` / `drophere_update_artifact` for large files, binary files, or incremental deploys. Their responses distinguish:
 
-- `mcpUploads` — call `drophere_upload_file` with the listed args.
+- `mcpUploads` — call `drophere_upload_file` with the listed args. Use `contentText` for text files or `contentBase64` for exact bytes.
 - `directHttpUploads` — direct HTTP `PUT` fallback for clients that can upload raw bytes.
 - `nextStep` — concise instruction for the client path to follow.
+- `siteUrlStatus: "pending_until_finalize"` and `doNotShareUntilFinalized: true` — the returned URL is reserved but not live until publish/finalize succeeds.
+- `operationState` — `pending_upload`, `ready_to_finalize`, or `active`.
+- `cleanup` — a `drophere_discard_pending_version` recipe for abandoned bad manifests.
+
+Call `drophere_get_artifact` to inspect a pending version before publishing. Its `pendingVersion.files[]` entries include `manifestBytes`, `uploadedBytes`, `uploaded`, `sizeMatches`, and `ready`; `pendingVersion.readyToFinalize` flips true when the version can be published.
+
+After uploading every required file, call `drophere_publish_uploaded_version`. `drophere_finalize_artifact` remains available as the compatibility name.
 
 For a bad pending version, update with a corrected manifest or discard the pending version instead of deleting the whole artifact unless removal is intended.
 
@@ -1596,7 +1604,7 @@ For a bad pending version, update with a corrected manifest or discard the pendi
 | Area | Tools |
 |------|-------|
 | Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_get_artifact_access` |
-| Artifact write | `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
+| Artifact write | `drophere_publish_artifact`, `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_publish_uploaded_version`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
 | Upload | `drophere_upload_file` |
 | Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
 | Collaboration | `drophere_set_collaboration`, `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment` |
