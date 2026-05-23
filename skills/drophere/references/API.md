@@ -332,7 +332,7 @@ Headers:
 | Header | Required | Notes |
 |--------|----------|-------|
 | `Content-Type` | Recommended | Should match the manifest entry's content type |
-| `Content-Length` | Recommended | If present, must not exceed the manifest entry's declared size |
+| `Content-Length` | Required | Must exactly match the manifest entry's declared size |
 
 **Response (200):**
 ```json
@@ -347,7 +347,8 @@ The upload window is 10 minutes. If it expires before all files are uploaded, ca
 | 400 | Invalid version ID or empty body |
 | 403 | Upload window expired |
 | 404 | Version not found, already finalized, or file not in manifest |
-| 413 | Uploaded body exceeds declared file size |
+| 411 | Missing Content-Length |
+| 413 | Content-Length does not match declared file size |
 | 502 | Upload to storage failed |
 
 ### Update Artifact (Incremental Deploy)
