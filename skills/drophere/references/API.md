@@ -1117,7 +1117,7 @@ Returns a compact list of API capabilities. Useful for agents to discover availa
   "capabilities": [
     { "name": "publish", "summary": "Upload static files to the web instantly", "endpoints": [...] },
     { "name": "collaboration", "summary": "Enable anchored comments, replies, moderation, and attachments", "endpoints": [...] },
-    { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_publish_uploaded_version"] }
+    { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_list_files", "drophere_get_file", "drophere_publish_uploaded_version"] }
   ],
   "docsUrl": "https://drophere.cc/skill/references/API.md",
   "markdownDocsUrl": "https://drophere.cc/skill/references/API.md",
@@ -1582,7 +1582,7 @@ The path-token form is available for clients that cannot set headers. Treat that
 
 ### MCP Publishing
 
-For small static/text artifacts, prefer `drophere_publish_artifact`. It accepts file content strings (`path`, `contentText` or `content`, `contentType`) and computes byte sizes internally, so clients do not need to pre-count bytes or base64 each file. `drophere_create_static_site` remains available as a compatibility alias for the same one-shot flow.
+For small static/text artifacts, prefer `drophere_publish_artifact`. It accepts file content strings (`path`, `contentText` or `content`, `contentType`) and computes byte sizes internally, so clients do not need to pre-count bytes or base64 each file. `drophere_create_static_site` remains available as a compatibility alias for the same one-shot flow. Successful one-shot responses include `shareable: true`, a canonical `artifact` summary, `nextActions`, `entrypointUrl`, `hasIndexHtml`, and `htmlDetected`.
 
 Use `drophere_create_artifact` / `drophere_update_artifact` for large files, binary files, or incremental deploys. Their responses distinguish:
 
@@ -1590,10 +1590,16 @@ Use `drophere_create_artifact` / `drophere_update_artifact` for large files, bin
 - `directHttpUploads` — direct HTTP `PUT` fallback for clients that can upload raw bytes.
 - `nextStep` — concise instruction for the client path to follow.
 - `siteUrlStatus: "pending_until_finalize"` and `doNotShareUntilFinalized: true` — the returned URL is reserved but not live until publish/finalize succeeds.
+- `shareable` — the simplest readiness signal for whether the URL can be returned to the user.
 - `operationState` — `pending_upload`, `ready_to_finalize`, or `active`.
+- `nextRecommendedAction` / `nextActions` — tool names and args for the next safe MCP step.
 - `cleanup` — a `drophere_discard_pending_version` recipe for abandoned bad manifests.
 
 Call `drophere_get_artifact` to inspect a pending version before publishing. Its `pendingVersion.files[]` entries include `manifestBytes`, `uploadedBytes`, `uploaded`, `sizeMatches`, and `ready`; `pendingVersion.readyToFinalize` flips true when the version can be published.
+
+After publishing, use `drophere_list_files` to inspect the live manifest and `drophere_get_file` to read back deployed content. `drophere_get_file` returns `contentText` for UTF-8 text files and `contentBase64` for binary files, truncating large files in the tool response.
+
+Status fields are intentionally distinct: `status` is the artifact row lifecycle, `operationState` is the MCP workflow state, and `siteUrlStatus` is public serving readiness.
 
 After uploading every required file, call `drophere_publish_uploaded_version`. `drophere_finalize_artifact` remains available as the compatibility name.
 
@@ -1603,7 +1609,7 @@ For a bad pending version, update with a corrected manifest or discard the pendi
 
 | Area | Tools |
 |------|-------|
-| Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_get_artifact_access` |
+| Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_list_files`, `drophere_get_file`, `drophere_get_artifact_access` |
 | Artifact write | `drophere_publish_artifact`, `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_publish_uploaded_version`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
 | Upload | `drophere_upload_file` |
 | Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
