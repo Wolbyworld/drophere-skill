@@ -54,6 +54,16 @@ node "$PUBLISH" --slug abc123 ./dist/
 
 The script outputs the site URL to stdout. All progress goes to stderr.
 
+## MCP Publishing
+
+Use MCP tools first when they are available. For small static/text sites, prefer `drophere_create_static_site`: pass file content strings with `path`, `content`, and `contentType`; the tool computes byte sizes internally.
+
+Use `drophere_create_artifact` or `drophere_update_artifact` when you need large files, binary files, or incremental deploy control. Their responses separate `mcpUploads` (call `drophere_upload_file`) from `directHttpUploads` (raw HTTP `PUT` fallback).
+
+Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
+
+For a bad pending version, update with corrected files or discard the pending version instead of deleting the whole artifact unless the user wants it removed.
+
 ## Access Control
 
 Restrict who can view a published artifact by email or email domain. Visitors must verify their email via a one-time code before viewing protected content.

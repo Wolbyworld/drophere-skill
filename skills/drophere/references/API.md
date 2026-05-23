@@ -257,10 +257,7 @@ POST /api/v1/artifact
   "ttlSeconds": 3600,
   "viewer": {
     "title": "My Site",
-    "description": "A demo page",
-    "ogImagePath": "og.png",
-    "spaMode": false,
-    "markdownDownload": false
+    "description": "A demo page"
   },
   "source": "cli"
 }
@@ -274,8 +271,10 @@ POST /api/v1/artifact
 | `files[].contentType` | `string` | Yes | MIME type |
 | `files[].hash` | `string` | No | SHA-256 hash for incremental deploys |
 | `ttlSeconds` | `number` | No | Expiry for authenticated users. Anonymous always = 24h |
-| `viewer` | `ViewerMetadata` | No | `title`, `description`, `ogImagePath`, `spaMode`, `markdownDownload` |
+| `viewer` | `ViewerMetadata` | No | Optional `title`, `description`, `ogImagePath`, `spaMode`, `markdownDownload` |
 | `source` | `string` | No | Client/source label, max 100 chars. Also accepted via `x-drophere-client` header. |
+
+All `viewer` fields are optional. Defaults: `title`/`description` omitted, `ogImagePath` absent or empty, `spaMode=false`, and `markdownDownload=false`.
 
 **Response (201):**
 ```json
@@ -298,6 +297,8 @@ POST /api/v1/artifact
 
 - `uploads` — upload URLs (10-min window). Upload each file with `PUT`.
 - `claimToken` — only returned for anonymous uploads. Store it to update/finalize later.
+
+REST create/update responses use `uploads` for direct HTTP `PUT`s. MCP create/update tools instead return `mcpUploads`, `directHttpUploads`, and `nextStep`; MCP clients should follow `mcpUploads` and reserve `directHttpUploads` for clients that can upload raw bytes themselves.
 
 **Upload size limits:**
 
@@ -394,6 +395,7 @@ PUT /api/v1/artifact/:slug
 ```
 
 - Only files in `uploads` need to be uploaded. Files in `skipped` matched by hash and will be copied server-side during finalize.
+- If a pending version was created with a bad manifest or bad files, prefer another update with the corrected manifest, or discard the pending version when appropriate. Use full artifact deletion only when you intend to remove the live artifact and all versions.
 
 **Errors:**
 | Status | Error |
@@ -466,6 +468,8 @@ POST /api/v1/artifact/:slug/claim
 ### Update Viewer Metadata
 
 Update viewer metadata. `title`, `description`, and `ogImagePath` affect auto-viewer rendering when there is no `index.html`. `spaMode` enables index fallback for client-side routers. `markdownDownload` enables opt-in `?format=md` downloads for HTML/Markdown artifact pages.
+
+All fields are optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 
 ```
 PATCH /api/v1/artifact/:slug/metadata
@@ -1575,12 +1579,24 @@ Use the bearer-header form when the client supports custom headers:
 
 The path-token form is available for clients that cannot set headers. Treat that URL as a secret.
 
+### MCP Publishing
+
+For small static/text sites, prefer `drophere_create_static_site`. It accepts file content strings (`path`, `content`, `contentType`) and computes byte sizes internally, so clients do not need to pre-count bytes or base64 each file.
+
+Use `drophere_create_artifact` / `drophere_update_artifact` for large files, binary files, or incremental deploys. Their responses distinguish:
+
+- `mcpUploads` — call `drophere_upload_file` with the listed args.
+- `directHttpUploads` — direct HTTP `PUT` fallback for clients that can upload raw bytes.
+- `nextStep` — concise instruction for the client path to follow.
+
+For a bad pending version, update with a corrected manifest or discard the pending version instead of deleting the whole artifact unless removal is intended.
+
 ### MCP Tools
 
 | Area | Tools |
 |------|-------|
 | Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_get_artifact_access` |
-| Artifact write | `drophere_create_artifact`, `drophere_update_artifact`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_delete_artifact` |
+| Artifact write | `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
 | Upload | `drophere_upload_file` |
 | Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
 | Collaboration | `drophere_set_collaboration`, `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment` |
