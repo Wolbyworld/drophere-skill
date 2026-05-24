@@ -7,6 +7,25 @@ Authenticated endpoints require `Authorization: Bearer <api_key>`.
 
 ---
 
+## Agent Integration Guidance
+
+Drophere is file-oriented. Function-calling agents should not send a complete
+generated website as one giant JSON string argument. That spends output tokens
+twice and makes cutoff failures more likely.
+
+Prefer this flow:
+
+1. Write generated content to local or server-side staged files.
+2. Send Drophere a compact manifest: path, byte size, content type, and hash.
+3. Upload bytes through the returned presigned URLs.
+4. Finalize and return only the live URL.
+
+Hosted agent runtimes should expose staging tools, then a final publish tool
+that reads those staged files server-side. Tool calls should pass paths, slugs,
+version IDs, and URLs rather than full file bodies whenever possible.
+
+---
+
 ## Authentication
 
 ### Request Code

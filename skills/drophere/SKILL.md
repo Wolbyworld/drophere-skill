@@ -66,6 +66,27 @@ Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=fal
 
 For a bad pending version, update with corrected files or discard the pending version instead of deleting the whole artifact unless the user wants it removed.
 
+### Token-efficient publishing
+
+For generated websites or other large artifacts, do not put the full HTML, CSS,
+JavaScript, or base64 content inside a single function/tool call. That wastes
+model output tokens, increases cost, and can cause the assistant to hit an
+output limit before it can return the URL.
+
+Use file references instead:
+
+1. Write generated content to disk or a server-side staged workspace first,
+   usually `index.html` plus optional asset files.
+2. Publish by path, directory, or compact manifest. For this skill that means
+   `node "$PUBLISH" ./site/`, `node "$PUBLISH" index.html style.css`, or MCP
+   create/update calls followed by upload/finalize calls.
+3. Return only the final Drophere URL and a short summary to the user.
+
+When integrating Drophere into a function-calling agent, keep tool arguments
+small. A good tool call passes a manifest, paths, slug, title, and options. A
+bad tool call passes a complete generated site as one giant string, then asks
+the model to repeat it again for upload.
+
 ## Access Control
 
 Restrict who can view a published artifact by email or email domain. Visitors must verify their email via a one-time code before viewing protected content.
