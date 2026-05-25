@@ -132,9 +132,9 @@ GET /api/v1/billing/plans
     },
     {
       "id": "secure",
-      "name": "Secure",
-      "description": "Security-focused publishing with collaboration and protected access controls.",
-      "features": ["Unlimited persistent artifacts", "Secure access controls", "Collaboration", "Service variables", "Custom domains"],
+      "name": "Unlimited Pro",
+      "description": "Volume publishing with collaboration and protected access controls.",
+      "features": ["Unlimited persistent artifacts", "Access controls", "Collaboration", "Service variables", "Custom domains"],
       "price": "$9.99/month"
     }
   ]
@@ -232,8 +232,8 @@ Paid-feature gates return HTTP 402 with a structured error. Agents should presen
 {
   "error": "PAYWALL",
   "code": "PLAN_REQUIRED",
-  "message": "The collaboration feature requires the secure plan.",
-  "agentMessage": "The collaboration feature requires the secure plan. Upgrade to secure ($9.99/month) at https://drophere.cc/account?upgrade=secure.",
+  "message": "The collaboration feature requires the Unlimited Pro plan.",
+  "agentMessage": "The collaboration feature requires the Unlimited Pro plan. Upgrade to Unlimited Pro ($9.99/month) at https://drophere.cc/account?upgrade=secure.",
   "billing": {
     "plan": "free_token",
     "usage": {
@@ -250,7 +250,7 @@ Paid-feature gates return HTTP 402 with a structured error. Agents should presen
 }
 ```
 
-Free Token includes API and MCP access, unlimited 24-hour artifacts, and 10 persistent artifacts. Unlimited unlocks unlimited persistent artifacts. Secure unlocks access control, password protection, collaboration, service variables, and custom domains.
+Free Token includes API and MCP access, unlimited 24-hour artifacts, and 10 persistent artifacts. Unlimited unlocks unlimited persistent artifacts. Unlimited Pro unlocks access control, password protection, collaboration, service variables, and custom domains.
 
 ---
 
