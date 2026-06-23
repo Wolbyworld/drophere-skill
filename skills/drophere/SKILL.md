@@ -54,6 +54,26 @@ node "$PUBLISH" --slug abc123 ./dist/
 
 The script outputs the site URL to stdout. All progress goes to stderr.
 
+## Accountless Tempo Payment Publishing
+
+Use the normal publish path for logged-in humans, account-backed agents, anonymous claim-token uploads, and Stripe-backed billing entitlements. Use Tempo MPP only for accountless agents that need to pay per publish and can satisfy an MPP `tempo/charge` challenge. Do not present Stripe and Tempo as interchangeable choices for the same publish request.
+
+The standalone publish script supports a two-phase machine-payment flow without adding npm dependencies:
+
+```bash
+# Phase 1: create the exact MPP challenge for these files
+node "$PUBLISH" --payment tempo ./dist/
+
+# Broadcast the decoded Tempo transfer with an MPP-capable wallet/helper, then complete:
+node "$PUBLISH" --payment tempo --mpp-tx-hash 0x... ./dist/
+
+# Optional sender pin when the wallet returns a did:pkh source:
+node "$PUBLISH" --payment tempo --mpp-tx-hash 0x... \
+  --mpp-source-did did:pkh:eip155:42431:0x... ./dist/
+```
+
+Phase 1 writes `.drophere/machine-payment-state.json` with mode `0600`, prints the decoded Tempo request to stderr, and exits without a URL. Phase 2 reuses that state, submits `Authorization: Payment`, uploads the files, finalizes the artifact, and prints the final site URL to stdout. If your wallet returns a full `Payment ...` authorization header, pass it with `--mpp-authorization` instead of `--mpp-tx-hash`.
+
 ## MCP Publishing
 
 Use MCP tools first when they are available. For small static/text artifacts, prefer `drophere_publish_artifact`: pass file content strings with `path`, `contentText` or `content`, and `contentType`; the tool computes byte sizes internally. `drophere_create_static_site` is the compatibility alias for the same one-shot flow. A successful response with `shareable: true` can be returned to the user immediately.

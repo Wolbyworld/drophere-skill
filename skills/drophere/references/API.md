@@ -11,7 +11,8 @@ Authenticated endpoints require `Authorization: Bearer <api_key>`.
 
 Drophere is file-oriented. Function-calling agents should not send a complete
 generated website as one giant JSON string argument. That spends output tokens
-twice and makes cutoff failures more likely.
+twice: once to generate the file, then again to serialize it into a tool call.
+It also makes cutoff failures more likely before the agent can return the URL.
 
 Prefer this flow:
 
@@ -251,6 +252,131 @@ Paid-feature gates return HTTP 402 with a structured error. Agents should presen
 ```
 
 Free Token includes API and MCP access, unlimited 24-hour artifacts, and 10 persistent artifacts. Unlimited unlocks unlimited persistent artifacts. Unlimited Pro unlocks access control, password protection, collaboration, service variables, and custom domains.
+
+---
+
+## Machine Payments
+
+Machine payments are an accountless paid publish path for agents. Use the regular `/api/v1/artifact` endpoints for authenticated accounts, anonymous claim-token uploads, and Stripe subscription features. Use the machine endpoints only when the client can satisfy an MPP `tempo/charge` challenge.
+
+Choose the path by principal, not by payment brand: logged-in humans and account-backed agents use the normal artifact APIs and Stripe-backed billing entitlements; accountless agents that need to pay per publish use the machine APIs and Tempo MPP. A client should not show both as interchangeable checkout choices for the same publish request.
+
+Drophere v1 advertises Tempo push mode only: the client broadcasts the TIP-20 transfer, then retries with `Authorization: Payment ...` containing a transaction hash. Drophere verifies the transaction receipt, creates a machine-owned artifact, and returns a machine token for upload finalization.
+
+### Create Machine Artifact
+
+```
+POST /api/v1/machine/artifact
+```
+
+**Auth:** No Bearer token. Requires `Idempotency-Key`. Use a high-entropy idempotency key and treat it as sensitive until `machineToken` is stored; paid retries are authorized by the tuple of idempotency key, exact request body, and verified Tempo transaction hash. Drophere rejects machine idempotency keys unless they are 32-200 URL-safe characters (`A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, `-`).
+
+Missing payment returns **402** with:
+
+| Header | Notes |
+|--------|-------|
+| `WWW-Authenticate: Payment ...` | MPP `tempo/charge` challenge. The request advertises `methodDetails.supportedModes: ["push"]`. |
+| `Cache-Control: no-store` | Payment challenges must not be cached. |
+
+The JSON body includes agent recovery hints:
+
+```json
+{
+  "error": "Payment required",
+  "code": "PAYMENT_REQUIRED",
+  "agentMessage": "Parse the WWW-Authenticate Payment challenge, broadcast the requested Tempo push transfer, then retry the same request with Authorization: Payment.",
+  "nextAction": "tempo_push_payment_then_retry",
+  "docsUrl": "https://docs.drophere.cc/#machine-payments"
+}
+```
+
+Paid retries must send `Authorization: Payment ...` with a Tempo hash credential. The credential is a base64url-encoded JSON object. Reuse the challenge fields returned in `WWW-Authenticate`; keep the `request` field in the encoded form from that header.
+
+```json
+{
+  "challenge": {
+    "id": "...",
+    "realm": "drophere.cc",
+    "method": "tempo",
+    "intent": "charge",
+    "request": "<base64url challenge request>",
+    "description": "Drophere paid machine artifact publish",
+    "expires": "2026-06-23T00:00:00.000Z"
+  },
+  "payload": { "type": "hash", "hash": "0x..." },
+  "source": "did:pkh:eip155:4217:0x..."
+}
+```
+
+Rate limits return **429** with `code: "RATE_LIMITED"` and `Retry-After`. Challenge requests are limited separately from paid verification retries.
+
+**Body:**
+```json
+{
+  "files": [
+    { "path": "index.html", "size": 1024, "contentType": "text/html" }
+  ],
+  "viewer": { "title": "Paid Site" },
+  "source": "agent"
+}
+```
+
+**Paid response (201):**
+```json
+{
+  "slug": "paid-demo",
+  "versionId": "550e8400-e29b-41d4-a716-446655440000",
+  "siteUrl": "https://paid-demo.drophere.cc/",
+  "uploadUrlExpiresIn": 600,
+  "machineUploadExpiresAt": "2026-06-23T00:00:00.000Z",
+  "machineToken": "<secret capability token>",
+  "uploads": [
+    {
+      "path": "index.html",
+      "method": "PUT",
+      "url": "https://drophere.cc/api/v1/upload/paid-demo/550e8400-.../index.html",
+      "headers": { "Content-Type": "text/html" }
+    }
+  ]
+}
+```
+
+The paid create response includes `Payment-Receipt` and `Cache-Control: private, no-store`. Store `machineToken`; it is required for machine finalize, refresh, and delete. Upload URLs use the same 10-minute proxy window as regular artifacts. If an upload URL expires before `machineUploadExpiresAt`, call the machine refresh endpoint to get fresh URLs for missing files. `expiresAt` is returned after finalize, when the active artifact TTL starts.
+
+### Finalize Machine Artifact
+
+```
+POST /api/v1/machine/artifact/:slug/finalize
+```
+
+**Auth:** `X-Drophere-Machine-Token`
+
+**Body:**
+```json
+{ "versionId": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+Validates every uploaded object against the manifest, promotes the pending version, sets the paid artifact expiry, and returns `siteUrl`. Generic account and claim-token finalize endpoints reject machine-owned artifacts.
+
+### Refresh Machine Uploads
+
+```
+POST /api/v1/machine/artifact/:slug/uploads/refresh
+```
+
+**Auth:** `X-Drophere-Machine-Token`
+
+Returns fresh upload URLs for missing pending files while the paid machine upload window is still valid.
+
+### Delete Machine Artifact
+
+```
+DELETE /api/v1/machine/artifact/:slug
+```
+
+**Auth:** `X-Drophere-Machine-Token`
+
+Deletes the machine-owned artifact and its stored objects.
 
 ---
 

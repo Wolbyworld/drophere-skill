@@ -7,8 +7,8 @@
 // stdout: final site URL only
 // stderr: progress, errors
 
-import { createHash } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { homedir } from "node:os";
@@ -22,6 +22,7 @@ let API_BASE = "https://drophere.cc";
 const CLIENT_HEADER = "claude-code/publish-mjs";
 const STATE_DIR = ".drophere";
 const STATE_FILE = join(STATE_DIR, "state.json");
+const MACHINE_STATE_FILE = join(STATE_DIR, "machine-payment-state.json");
 const CREDENTIALS_FILE = join(homedir(), ".drophere", "credentials");
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,12 @@ Options:
   --title TITLE      Set viewer title
   --description DESC Set viewer description
   --ttl SECONDS      Set expiry (authenticated only)
+  --payment tempo    Use accountless Tempo MPP paid publish instead of Stripe/account APIs
+  --mpp-tx-hash HASH Complete a Tempo MPP publish with a broadcast transaction hash
+  --mpp-source-did DID
+                     Optional did:pkh sender pin for --mpp-tx-hash
+  --mpp-authorization HEADER
+                     Complete with a full Authorization: Payment header
   --dry-run          List files that would be published, then exit
   --base-url URL     Override API base URL
   --help             Show this help
@@ -94,6 +101,8 @@ Examples:
   node publish.mjs ./dist/                    # Anonymous publish
   node publish.mjs --slug abc123 ./dist/      # Update existing artifact
   node publish.mjs --api-key dp_... ./site/   # Authenticated publish
+  node publish.mjs --payment tempo ./dist/     # Start Tempo MPP paid publish
+  node publish.mjs --payment tempo --mpp-tx-hash 0x... ./dist/
 `);
   process.exit(1);
 }
@@ -103,7 +112,19 @@ Examples:
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { slug: "", apiKey: "", title: "", description: "", ttl: "", dryRun: false, inputs: [] };
+  const args = {
+    slug: "",
+    apiKey: "",
+    title: "",
+    description: "",
+    ttl: "",
+    payment: "",
+    mppTxHash: "",
+    mppSourceDid: "",
+    mppAuthorization: "",
+    dryRun: false,
+    inputs: [],
+  };
   let i = 0;
   while (i < argv.length) {
     const arg = argv[i];
@@ -113,6 +134,10 @@ function parseArgs(argv) {
       case "--title":      args.title = argv[++i]; break;
       case "--description": args.description = argv[++i]; break;
       case "--ttl":        args.ttl = argv[++i]; break;
+      case "--payment":    args.payment = argv[++i]; break;
+      case "--mpp-tx-hash": args.mppTxHash = argv[++i]; break;
+      case "--mpp-source-did": args.mppSourceDid = argv[++i]; break;
+      case "--mpp-authorization": args.mppAuthorization = argv[++i]; break;
       case "--dry-run":    args.dryRun = true; break;
       case "--base-url":   API_BASE = argv[++i]; break;
       case "--help": case "-h": usage(); break;
@@ -123,6 +148,55 @@ function parseArgs(argv) {
     i++;
   }
   return args;
+}
+
+function base64UrlDecode(value) {
+  const padded = value + "=".repeat((4 - (value.length % 4)) % 4);
+  return Buffer.from(padded, "base64url").toString("utf8");
+}
+
+function base64UrlEncodeJson(value) {
+  return Buffer.from(JSON.stringify(value)).toString("base64url").replace(/=+$/, "");
+}
+
+function parsePaymentChallengeHeader(header) {
+  if (!header || !/^Payment\s+/i.test(header)) {
+    throw new Error("Missing WWW-Authenticate: Payment challenge");
+  }
+  const params = {};
+  for (const match of header.slice(header.search(/\s/) + 1).matchAll(/([A-Za-z][A-Za-z0-9_-]*)="((?:\\.|[^"])*)"/g)) {
+    params[match[1]] = match[2].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  for (const key of ["id", "realm", "method", "intent", "request", "expires"]) {
+    if (!params[key]) throw new Error(`Payment challenge missing ${key}`);
+  }
+  const challenge = {
+    id: params.id,
+    realm: params.realm,
+    method: params.method,
+    intent: params.intent,
+    request: params.request,
+    expires: params.expires,
+  };
+  if (params.description) challenge.description = params.description;
+  if (params.opaque) challenge.opaque = params.opaque;
+  return {
+    challenge,
+    request: JSON.parse(base64UrlDecode(params.request)),
+    wwwAuthenticate: header,
+  };
+}
+
+function makePaymentAuthorization(challenge, txHash, sourceDid) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+    throw new Error("--mpp-tx-hash must be a 32-byte 0x-prefixed hex hash");
+  }
+  const credential = {
+    challenge,
+    payload: { type: "hash", hash: txHash },
+  };
+  if (sourceDid) credential.source = sourceDid;
+  return `Payment ${base64UrlEncodeJson(credential)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,12 +313,13 @@ function httpsUpload(url, fileData, contentType) {
 // API request helper
 // ---------------------------------------------------------------------------
 
-function apiRequest(method, url, body, apiKey) {
+function apiRequestRaw(method, url, body, apiKey, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const headers = {
       "x-drophere-client": CLIENT_HEADER,
       "Content-Type": "application/json",
+      ...extraHeaders,
     };
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
@@ -261,15 +336,14 @@ function apiRequest(method, url, body, apiKey) {
       let text = "";
       res.on("data", (chunk) => text += chunk);
       res.on("end", () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`${method} ${parsed.pathname} returned HTTP ${res.statusCode}: ${text}`));
-          return;
-        }
+        let json;
         try {
-          resolve(JSON.parse(text));
+          json = text ? JSON.parse(text) : null;
         } catch {
           reject(new Error(`${method} ${parsed.pathname} returned invalid JSON: ${text}`));
+          return;
         }
+        resolve({ status: res.statusCode || 0, headers: res.headers, body: json, text });
       });
     });
 
@@ -284,6 +358,14 @@ function apiRequest(method, url, body, apiKey) {
       req.end();
     }
   });
+}
+
+async function apiRequest(method, url, body, apiKey) {
+  const response = await apiRequestRaw(method, url, body, apiKey);
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`${method} ${new URL(url).pathname} returned HTTP ${response.status}: ${response.text}`);
+  }
+  return response.body;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +398,175 @@ function saveState(slug, versionId, siteUrl, claimToken) {
   const state = { slug, versionId, siteUrl, claimToken, updatedAt: new Date().toISOString() };
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + "\n");
   debug(`State saved to ${STATE_FILE}`);
+}
+
+function saveMachineState(state) {
+  mkdirSync(STATE_DIR, { recursive: true });
+  writeFileSync(MACHINE_STATE_FILE, JSON.stringify(state, null, 2) + "\n", { mode: 0o600 });
+  chmodSync(MACHINE_STATE_FILE, 0o600);
+  debug(`Machine payment state saved to ${MACHINE_STATE_FILE}`);
+}
+
+function loadMachineState() {
+  if (!existsSync(MACHINE_STATE_FILE)) {
+    throw new Error(`Machine payment state not found: ${MACHINE_STATE_FILE}. Start with --payment tempo before passing a transaction hash.`);
+  }
+  return JSON.parse(readFileSync(MACHINE_STATE_FILE, "utf8"));
+}
+
+function machinePublishBody(files, args) {
+  const body = { files, source: "publish-mjs:mpp" };
+  if (args.title || args.description) {
+    body.viewer = {};
+    if (args.title) body.viewer.title = args.title;
+    if (args.description) body.viewer.description = args.description;
+  }
+  return body;
+}
+
+async function uploadFiles(uploads, fileMap) {
+  if (uploads.length > 0) {
+    log(`Uploading ${uploads.length} file(s)...`);
+    let uploadErrors = 0;
+
+    for (const upload of uploads) {
+      const localFile = fileMap[upload.path];
+      if (!localFile || !existsSync(localFile)) {
+        err(`Local file not found for path: ${upload.path}`);
+        uploadErrors++;
+        continue;
+      }
+
+      debug(`Uploading: ${upload.path}`);
+      const fileData = readFileSync(localFile);
+      const uploadCt = upload.headers?.["Content-Type"] || contentType(localFile);
+
+      let result;
+      try {
+        result = await withRetry(() => httpsUpload(upload.url, fileData, uploadCt));
+      } catch (uploadErr) {
+        const details = uploadErr.errors
+          ? uploadErr.errors.map((e) => e.message || String(e)).join("; ")
+          : uploadErr.message || String(uploadErr);
+        err(`Upload ${upload.path} failed: ${details}`);
+        uploadErrors++;
+        continue;
+      }
+
+      if (result.status < 200 || result.status >= 300) {
+        err(`Upload ${upload.path} returned HTTP ${result.status}`);
+        uploadErrors++;
+      }
+    }
+
+    if (uploadErrors > 0) {
+      err(`${uploadErrors} upload(s) failed`);
+      process.exit(1);
+    }
+  } else {
+    log("All files unchanged — no uploads needed");
+  }
+}
+
+async function machinePublish(args, files, fileMap) {
+  if (args.slug) throw new Error("--payment tempo creates a new paid machine artifact; --slug updates are not supported");
+  if (args.apiKey) throw new Error("--payment tempo is accountless and cannot be combined with --api-key");
+  if (args.ttl) throw new Error("--ttl is not supported for --payment tempo; the server uses MPP_ARTIFACT_TTL_DAYS");
+
+  const body = machinePublishBody(files, args);
+  const bodyJson = JSON.stringify(body);
+  const hasPaymentCredential = Boolean(args.mppAuthorization || args.mppTxHash);
+  const headers = {};
+  let idempotencyKey;
+  let state;
+
+  if (hasPaymentCredential) {
+    state = loadMachineState();
+    if (JSON.stringify(state.body) !== bodyJson) {
+      throw new Error(`Current files/options do not match ${MACHINE_STATE_FILE}; rerun phase 1 after changing inputs`);
+    }
+    idempotencyKey = state.idempotencyKey;
+    headers.Authorization = args.mppAuthorization || makePaymentAuthorization(state.challenge, args.mppTxHash, args.mppSourceDid);
+  } else {
+    idempotencyKey = `publish-mpp-${randomBytes(24).toString("base64url")}`;
+  }
+  headers["Idempotency-Key"] = idempotencyKey;
+
+  const create = await withRetry(() => apiRequestRaw("POST", `${API_BASE}/api/v1/machine/artifact`, body, "", headers));
+  if (!hasPaymentCredential) {
+    if (create.status !== 402) {
+      throw new Error(`POST /api/v1/machine/artifact returned HTTP ${create.status}: ${create.text}`);
+    }
+    const parsed = parsePaymentChallengeHeader(String(create.headers["www-authenticate"] || ""));
+    state = {
+      baseUrl: API_BASE,
+      idempotencyKey,
+      body,
+      bodyJson,
+      challenge: parsed.challenge,
+      request: parsed.request,
+      wwwAuthenticate: parsed.wwwAuthenticate,
+      createdAt: new Date().toISOString(),
+    };
+    saveMachineState(state);
+    log("Tempo MPP payment required. Decoded request:");
+    process.stderr.write(JSON.stringify(parsed.request, null, 2) + "\n");
+    log(`State file: ${MACHINE_STATE_FILE}`);
+    log(`After broadcasting the Tempo transfer, rerun with: node publish.mjs --payment tempo --mpp-tx-hash 0x... ${args.inputs.join(" ")}`);
+    return;
+  }
+
+  if (create.status !== 200 && create.status !== 201) {
+    throw new Error(`POST /api/v1/machine/artifact returned HTTP ${create.status}: ${create.text}`);
+  }
+
+  const response = create.body || {};
+  const slug = response.slug;
+  const versionId = response.versionId;
+  const machineToken = response.machineToken;
+  if (!slug || !versionId || !machineToken) {
+    throw new Error("Machine artifact response missing slug, versionId, or machineToken");
+  }
+
+  saveMachineState({
+    ...state,
+    slug,
+    versionId,
+    siteUrl: response.siteUrl,
+    machineToken,
+    paymentReceipt: create.headers["payment-receipt"] || "",
+    paidAt: new Date().toISOString(),
+  });
+
+  await uploadFiles(response.uploads || [], fileMap);
+
+  log("Finalizing...");
+  const finalized = await withRetry(() => apiRequestRaw(
+    "POST",
+    `${API_BASE}/api/v1/machine/artifact/${encodeURIComponent(slug)}/finalize`,
+    { versionId },
+    "",
+    { "X-Drophere-Machine-Token": machineToken },
+  ));
+  if (finalized.status < 200 || finalized.status >= 300) {
+    throw new Error(`POST /api/v1/machine/artifact/${slug}/finalize returned HTTP ${finalized.status}: ${finalized.text}`);
+  }
+
+  const siteUrl = finalized.body?.siteUrl || response.siteUrl;
+  saveMachineState({
+    ...state,
+    slug,
+    versionId,
+    siteUrl,
+    machineToken,
+    paymentReceipt: create.headers["payment-receipt"] || "",
+    finalizedAt: new Date().toISOString(),
+  });
+
+  log("Published successfully!");
+  log(`URL: ${siteUrl}`);
+  if (finalized.body?.expiresAt) log(`Expires: ${finalized.body.expiresAt}`);
+  process.stdout.write(siteUrl + "\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +607,12 @@ async function main() {
     log("Dry run — files that would be published:");
     for (const f of files) log(`  ${f.path} (${f.size} bytes, ${f.contentType})`);
     process.exit(0);
+  }
+
+  if (args.payment) {
+    if (args.payment !== "tempo") throw new Error(`Unsupported payment option: ${args.payment}`);
+    await machinePublish(args, files, fileMap);
+    return;
   }
 
   // Load state
@@ -446,47 +703,7 @@ async function main() {
   debug(`slug=${slug} versionId=${versionId} uploads=${uploads.length}`);
 
   // Upload files to upload URLs
-  if (uploads.length > 0) {
-    log(`Uploading ${uploads.length} file(s)...`);
-    let uploadErrors = 0;
-
-    for (const upload of uploads) {
-      const localFile = fileMap[upload.path];
-      if (!localFile || !existsSync(localFile)) {
-        err(`Local file not found for path: ${upload.path}`);
-        uploadErrors++;
-        continue;
-      }
-
-      debug(`Uploading: ${upload.path}`);
-      const fileData = readFileSync(localFile);
-      const uploadCt = upload.headers?.["Content-Type"] || contentType(localFile);
-
-      let result;
-      try {
-        result = await withRetry(() => httpsUpload(upload.url, fileData, uploadCt));
-      } catch (uploadErr) {
-        const details = uploadErr.errors
-          ? uploadErr.errors.map((e) => e.message || String(e)).join("; ")
-          : uploadErr.message || String(uploadErr);
-        err(`Upload ${upload.path} failed: ${details}`);
-        uploadErrors++;
-        continue;
-      }
-
-      if (result.status < 200 || result.status >= 300) {
-        err(`Upload ${upload.path} returned HTTP ${result.status}`);
-        uploadErrors++;
-      }
-    }
-
-    if (uploadErrors > 0) {
-      err(`${uploadErrors} upload(s) failed`);
-      process.exit(1);
-    }
-  } else {
-    log("All files unchanged — no uploads needed");
-  }
+  await uploadFiles(uploads, fileMap);
 
   // Finalize
   log("Finalizing...");
