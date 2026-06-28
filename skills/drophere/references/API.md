@@ -505,7 +505,7 @@ Update an existing artifact. Files with matching hashes are skipped (no re-uploa
 PUT /api/v1/artifact/:slug
 ```
 
-**Auth:** Optional (Bearer token OR `claimToken` in body for anonymous)
+**Auth:** Optional (Bearer token OR `claimToken` in body for anonymous OR edit grant token via `X-Drophere-Edit-Token`)
 
 **Body:**
 ```json
@@ -514,7 +514,9 @@ PUT /api/v1/artifact/:slug
     { "path": "index.html", "size": 2048, "contentType": "text/html", "hash": "sha256:new..." },
     { "path": "style.css", "size": 512, "contentType": "text/css", "hash": "sha256:def..." }
   ],
-  "claimToken": "ct_xyz789..."
+  "claimToken": "ct_xyz789...",
+  "baseVersionId": "current-version-id-for-edit-grants",
+  "summary": "Short deploy summary"
 }
 ```
 
@@ -540,6 +542,7 @@ PUT /api/v1/artifact/:slug
 ```
 
 - Only files in `uploads` need to be uploaded. Files in `skipped` matched by hash and will be copied server-side during finalize.
+- Edit grant tokens are artifact-scoped deploy tokens. They must send `baseVersionId`, and Drophere rejects the update with `409` if the live version has changed since that base.
 - If a pending version was created with a bad manifest or bad files, prefer another update with the corrected manifest, or discard the pending version when appropriate. Use full artifact deletion only when you intend to remove the live artifact and all versions.
 
 **Errors:**
@@ -547,6 +550,7 @@ PUT /api/v1/artifact/:slug
 |--------|-------|
 | 403 | Invalid or missing claim token / You do not own this artifact |
 | 404 | Artifact not found |
+| 409 | Base version changed; recreate update from current version |
 | 410 | Artifact has expired |
 | 413 | File or total artifact size exceeds limit |
 
@@ -558,7 +562,7 @@ Mark an upload as complete. Copies skipped files server-side, activates the vers
 POST /api/v1/artifact/:slug/finalize
 ```
 
-**Auth:** Optional (Bearer token OR `claimToken` in body)
+**Auth:** Optional (Bearer token OR `claimToken` in body OR edit grant token via `X-Drophere-Edit-Token`)
 
 **Body:**
 ```json
@@ -584,7 +588,120 @@ POST /api/v1/artifact/:slug/finalize
 | 401 | Authentication required |
 | 403 | Invalid or missing claim token / You do not own this artifact |
 | 404 | Artifact not found / Version not found |
-| 409 | versionId does not match pending version |
+| 409 | versionId does not match pending version / base version changed |
+
+### Artifact Edit Grants
+
+Owner-managed deploy-only tokens for collaborative publishing. An edit grant is scoped to one artifact and can only create, upload, and finalize new versions for that artifact. It cannot delete, restore/rollback old versions, change visibility/passwords, manage comments, manage variables, route handles/domains, duplicate artifacts, or create/revoke other grants.
+
+The raw token is returned only once on creation. Drophere stores only a token hash.
+
+#### Create Edit Grant
+
+```
+POST /api/v1/artifact/:slug/edit-grants
+```
+
+**Auth:** Required (artifact owner Bearer token)
+
+**Body:**
+```json
+{
+  "name": "builder agent",
+  "ttlSeconds": 86400
+}
+```
+
+`expiresAt` may be sent instead of `ttlSeconds`.
+
+**Response (201):**
+```json
+{
+  "grant": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "slug": "abc123",
+    "name": "builder agent",
+    "scopes": ["deploy"],
+    "expiresAt": "2026-06-29T12:00:00.000Z",
+    "revokedAt": null,
+    "lastUsedAt": null,
+    "createdAt": "2026-06-28T12:00:00.000Z",
+    "updatedAt": "2026-06-28T12:00:00.000Z"
+  },
+  "token": "deg_secret_returned_once",
+  "tokenReturnedOnce": true
+}
+```
+
+#### List Edit Grants
+
+```
+GET /api/v1/artifact/:slug/edit-grants?includeRevoked=false
+```
+
+**Auth:** Required (artifact owner Bearer token)
+
+Returns grant metadata without token values.
+
+#### Revoke Edit Grant
+
+```
+DELETE /api/v1/artifact/:slug/edit-grants/:grantId
+```
+
+**Auth:** Required (artifact owner Bearer token)
+
+Revocation is idempotent. Existing pending versions created by the grant cannot be finalized with that grant after revocation.
+
+### Version History
+
+```
+GET /api/v1/artifact/:slug/versions?limit=50
+```
+
+**Auth:** Required (artifact owner Bearer token)
+
+Lists immutable version snapshots with deploy attribution. This is owner-readable history, not rollback; restoring an old version remains an owner-only administrative action outside edit grants.
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "currentVersionId": "current-version-id",
+  "pendingVersionId": null,
+  "versions": [
+    {
+      "versionId": "current-version-id",
+      "baseVersionId": "previous-version-id",
+      "isFinalized": true,
+      "createdByKind": "edit_grant",
+      "createdByUserId": null,
+      "createdByEditGrantId": "grant-id",
+      "editGrantName": "builder agent",
+      "summary": "Update homepage copy",
+      "fileCount": 12,
+      "createdAt": "2026-06-28T12:00:00.000Z",
+      "finalizedAt": "2026-06-28T12:03:00.000Z"
+    }
+  ]
+}
+```
+
+#### Publish With Edit Grant
+
+```bash
+curl -X PUT "https://drophere.cc/api/v1/artifact/abc123" \
+  -H "X-Drophere-Edit-Token: deg_secret_returned_once" \
+  -H "Content-Type: application/json" \
+  -d '{"baseVersionId":"current-version-id","files":[{"path":"index.html","size":2048,"contentType":"text/html","hash":"sha256:new"}]}'
+
+curl -X POST "https://drophere.cc/api/v1/artifact/abc123/finalize" \
+  -H "X-Drophere-Edit-Token: deg_secret_returned_once" \
+  -H "Content-Type: application/json" \
+  -d '{"versionId":"returned-version-id"}'
+```
+
+Finalize succeeds only when the pending version was created by that grant and the artifact's live `currentVersionId` still matches the pending version's `baseVersionId`.
 
 ### Claim Artifact
 
@@ -1754,8 +1871,9 @@ For a bad pending version, update with a corrected manifest or discard the pendi
 
 | Area | Tools |
 |------|-------|
-| Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_list_files`, `drophere_get_file`, `drophere_get_artifact_access` |
+| Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_list_artifact_versions`, `drophere_list_files`, `drophere_get_file`, `drophere_get_artifact_access` |
 | Artifact write | `drophere_publish_artifact`, `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_publish_uploaded_version`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
+| Edit grants | `drophere_create_edit_grant`, `drophere_list_edit_grants`, `drophere_revoke_edit_grant` |
 | Upload | `drophere_upload_file` |
 | Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
 | Collaboration | `drophere_set_collaboration`, `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment` |

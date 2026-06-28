@@ -166,6 +166,19 @@ If the user's content appears internal, sensitive, or intended for a specific au
 
 > "Should I restrict access to this? I can limit viewing to specific emails or an email domain (e.g., everyone @acme.com)."
 
+## Edit Grants
+
+Artifact owners can create deploy-only edit grants for collaborators or other agents. Use MCP tools first when available:
+
+- `drophere_create_edit_grant` — create a revocable artifact-scoped deploy token
+- `drophere_list_edit_grants` — list grant metadata; token values are never returned
+- `drophere_revoke_edit_grant` — revoke a grant
+- `drophere_list_artifact_versions` — inspect immutable version history and deploy attribution
+
+The raw token is returned only once. It can publish new versions for that artifact through the REST update/finalize flow with `X-Drophere-Edit-Token`, but it cannot delete, rollback, change access/passwords, manage comments, manage variables, duplicate artifacts, route handles/domains, or create/revoke grants.
+
+When publishing with an edit grant, pass `baseVersionId` to `PUT /api/v1/artifact/:slug`. If the live version changed since that base, Drophere returns `409`; fetch the current manifest and create a new update instead of overwriting.
+
 ## Collaboration Comments
 
 Drophere artifacts can expose an isolated reader-style collaboration layer for anchored comments, replies, pasted image attachments, and owner/agent moderation. This can be enabled on existing artifacts without republishing because the layer is injected at serve time.
