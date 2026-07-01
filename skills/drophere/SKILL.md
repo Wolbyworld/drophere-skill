@@ -84,6 +84,8 @@ Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-
 
 Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 
+Vanity artifact URLs are available to paid accounts through the optional `slug` field on `drophere_publish_artifact`, `drophere_create_static_site`, and `drophere_create_artifact`. Use `slug` only when the user explicitly asks for a vanity artifact URL. Custom slugs require persistent artifacts; do not pass `ttlSeconds` with `slug`. On a `409` slug conflict, ask the user for a different slug; do not invent one unless the user requested suggestions.
+
 For a bad pending version, update with corrected files or discard the pending version instead of deleting the whole artifact unless the user wants it removed.
 
 ### Token-efficient publishing

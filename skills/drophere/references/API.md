@@ -128,14 +128,14 @@ GET /api/v1/billing/plans
       "id": "unlimited",
       "name": "Unlimited",
       "description": "Higher-volume publishing for persistent artifacts.",
-      "features": ["Unlimited persistent artifacts"],
+      "features": ["Unlimited persistent artifacts", "Custom artifact slugs"],
       "price": "$4.99/month"
     },
     {
       "id": "secure",
       "name": "Unlimited Pro",
       "description": "Volume publishing with collaboration and protected access controls.",
-      "features": ["Unlimited persistent artifacts", "Access controls", "Collaboration", "Service variables", "Custom domains"],
+      "features": ["Unlimited persistent artifacts", "Custom artifact slugs", "Access controls", "Collaboration", "Service variables", "Custom domains"],
       "price": "$9.99/month"
     }
   ]
@@ -169,6 +169,7 @@ GET /api/v1/billing/status
     "secureAccessControls": false,
     "collaboration": false,
     "serviceVariables": false,
+    "customArtifactSlugs": false,
     "customDomains": false
   },
   "upgradeOptions": [
@@ -177,7 +178,7 @@ GET /api/v1/billing/status
       "price": "$4.99/month",
       "checkoutEndpoint": "/api/v1/billing/checkout",
       "accountUrl": "https://drophere.cc/account?upgrade=unlimited",
-      "unlocks": ["Unlimited persistent artifacts"]
+      "unlocks": ["Unlimited persistent artifacts", "Custom artifact slugs"]
     }
   ]
 }
@@ -416,10 +417,13 @@ POST /api/v1/artifact
 | `files[].contentType` | `string` | Yes | MIME type |
 | `files[].hash` | `string` | No | SHA-256 hash for incremental deploys |
 | `ttlSeconds` | `number` | No | Expiry for authenticated users. Anonymous always = 24h |
+| `slug` | `string` | No | Paid vanity artifact URL slug. Authenticated persistent artifacts only. Lowercase letters, numbers, and hyphens, 2-63 chars. |
 | `viewer` | `ViewerMetadata` | No | Optional `title`, `description`, `ogImagePath`, `spaMode`, `markdownDownload` |
 | `source` | `string` | No | Client/source label, max 100 chars. Also accepted via `x-drophere-client` header. |
 
 All `viewer` fields are optional. Defaults: `title`/`description` omitted, `ogImagePath` absent or empty, `spaMode=false`, and `markdownDownload=false`.
+
+**Vanity artifact URLs:** Paid Unlimited and Unlimited Pro accounts may pass `slug` at creation time to publish at `https://{slug}.drophere.cc/`. Use `slug` only when the user explicitly asks for a vanity artifact URL. Custom slugs require authenticated persistent artifacts; do not combine `slug` with `ttlSeconds`. On `409`, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
 **Response (201):**
 ```json
@@ -1375,9 +1379,10 @@ Returns a compact list of API capabilities. Useful for agents to discover availa
 **Response (200):**
 ```json
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "capabilities": [
     { "name": "publish", "summary": "Upload static files to the web instantly", "endpoints": [...] },
+    { "name": "vanity-artifact-urls", "summary": "Paid persistent artifacts can request a custom artifact subdomain at creation time", "endpoints": ["POST /api/v1/artifact"], "tools": ["drophere_publish_artifact", "drophere_create_static_site", "drophere_create_artifact"] },
     { "name": "collaboration", "summary": "Enable anchored comments, replies, moderation, and attachments", "endpoints": [...] },
     { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_list_files", "drophere_get_file", "drophere_publish_uploaded_version"] }
   ],
