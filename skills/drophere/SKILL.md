@@ -84,7 +84,9 @@ Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-
 
 Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 
-Vanity artifact URLs are available to paid accounts through the optional `slug` field on `drophere_publish_artifact`, `drophere_create_static_site`, and `drophere_create_artifact`. Use `slug` only when the user explicitly asks for a vanity artifact URL. Custom slugs require persistent artifacts; do not pass `ttlSeconds` with `slug`. On a `409` slug conflict, ask the user for a different slug; do not invent one unless the user requested suggestions.
+URL intent rule: if the user asks for `https://name.drophere.cc/`, `name.drophere.cc`, or any `*.drophere.cc` root URL for one site, create a persistent artifact with `slug: "name"`. Do not claim or rename a handle, do not register `name.drophere.cc` as a custom domain, and do not fall back to `handle.drophere.cc/name` unless the user approves that fallback.
+
+Vanity artifact URLs are available to paid accounts through the optional `slug` field on `drophere_publish_artifact`, `drophere_create_static_site`, and `drophere_create_artifact`. Custom slugs require persistent artifacts; do not pass `ttlSeconds` with `slug`. On a `409` slug conflict, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
 Handle URLs and vanity artifact URLs both use `{name}.drophere.cc`, but they are different products. A handle is one account namespace for routing paths like `acme.drophere.cc/gallery`; a vanity artifact slug is a direct root URL for one artifact like `client-demo.drophere.cc/`. Do not claim or rename a handle when the user asks for a vanity artifact URL. Names are exclusive across handles, artifact slugs, and retained vanity reservations.
 
@@ -307,6 +309,8 @@ To create a vanity artifact URL from the CLI, authenticate first and then pass `
 ```bash
 DROPHERE_API_KEY=dp_... node "$PUBLISH" --claim-slug client-demo ./dist/
 ```
+
+Use `--claim-slug name` for a requested root URL like `https://name.drophere.cc/`. Do not use the handle or custom-domain APIs for `*.drophere.cc` root URLs.
 
 Use `--slug existing-slug` or `--update-slug existing-slug` only when updating an existing artifact without relying on `.drophere/state.json`.
 

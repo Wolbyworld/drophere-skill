@@ -426,7 +426,9 @@ POST /api/v1/artifact
 
 All `viewer` fields are optional. Defaults: `title`/`description` omitted, `ogImagePath` absent or empty, `spaMode=false`, and `markdownDownload=false`.
 
-**Vanity artifact URLs:** Paid Unlimited and Unlimited Pro accounts may pass `slug` at creation time to publish at `https://{slug}.drophere.cc/`. Use `slug` only when the user explicitly asks for a vanity artifact URL. Custom slugs require authenticated persistent artifacts; do not combine `slug` with `ttlSeconds`. Slugs must be lowercase DNS labels: `a-z`, `0-9`, hyphen, 2-63 chars, no leading/trailing hyphen. Reserved platform names such as `admin`, `api`, `www`, `docs`, `app`, `login`, `status`, and `support` are blocked. On `409` with `code: "CUSTOM_SLUG_UNAVAILABLE"`, ask the user for a different slug; do not invent one unless the user requested suggestions.
+**URL intent rule:** when a user asks for `https://name.drophere.cc/` or any `*.drophere.cc` root URL for one site, create the artifact with `slug: "name"`. Do not claim or rename a handle, do not register `name.drophere.cc` as a custom domain, and do not fall back to `handle.drophere.cc/name` unless the user approves that fallback.
+
+**Vanity artifact URLs:** Paid Unlimited and Unlimited Pro accounts may pass `slug` at creation time to publish at `https://{slug}.drophere.cc/`. Custom slugs require authenticated persistent artifacts; do not combine `slug` with `ttlSeconds`. Slugs must be lowercase DNS labels: `a-z`, `0-9`, hyphen, 2-63 chars, no leading/trailing hyphen. Reserved platform names such as `admin`, `api`, `www`, `docs`, `app`, `login`, `status`, and `support` are blocked. On `409` with `code: "CUSTOM_SLUG_UNAVAILABLE"`, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
 **Response (201):**
 ```json
@@ -1421,6 +1423,12 @@ Both handles and vanity artifact slugs use the same `{name}.drophere.cc` subdoma
 | Vanity artifact slug | `https://client-demo.drophere.cc/` | One artifact gets the root subdomain directly | Paid persistent artifact, chosen only at creation time |
 | Handle | `https://acme.drophere.cc/docs` | Account namespace that routes paths to one or more artifacts | One handle per account |
 
+Decision rule for agents:
+
+- User asks for `https://name.drophere.cc/` or `name.drophere.cc` for one artifact/site: create a persistent artifact with `slug: "name"`.
+- User asks for `https://handle.drophere.cc/path`: use the existing handle plus a link, or claim a handle only if the user explicitly wants an account namespace.
+- User asks for `example.com` or another non-Drophere hostname: use custom domains.
+
 Do not claim or rename a handle when the user asks for a vanity artifact URL. Use the `slug` field on artifact creation instead.
 
 The namespace is exclusive. A name already used by an artifact slug, retained vanity slug reservation, or handle cannot be claimed by the other mechanism. New generated artifact slugs also skip retained vanity reservations and handles, so there is no runtime precedence to choose for new claims. If a request conflicts, REST returns `409` with either `CUSTOM_SLUG_UNAVAILABLE` or `HANDLE_UNAVAILABLE`; agents should ask the user for the next name.
@@ -1453,7 +1461,7 @@ POST /api/v1/handle
 | Status | Code | Error |
 |--------|------|-------|
 | 400 | `HANDLE_INVALID` | Invalid handle format |
-| 409 | `HANDLE_ALREADY_SET` | The account already has one handle. The response includes the current `handle` and `hostname`. |
+| 409 | `HANDLE_ALREADY_SET` | The account already has one handle. The response includes the current `handle`, `hostname`, and `nextAction` pointing single-site root URL requests to artifact `slug`. |
 | 409 | `HANDLE_UNAVAILABLE` | The handle name is already used by a handle, artifact slug, or retained vanity reservation |
 
 ### Get Handle
@@ -1649,6 +1657,8 @@ POST /api/v1/domains
   }
 }
 ```
+
+Do not register `*.drophere.cc` names here. A request such as `drophelloworld.drophere.cc` returns `400` with `code: "DROPHERE_HOSTNAME_RESERVED"` and `suggestedSlug: "drophelloworld"`; create a persistent artifact with that `slug` instead.
 
 ### List Domains
 

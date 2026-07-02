@@ -104,6 +104,7 @@ Examples:
   node publish.mjs ./dist/                    # Anonymous publish
   node publish.mjs --api-key dp_... --claim-slug client-demo ./dist/
                                                # Create https://client-demo.drophere.cc/
+                                               # Use for requested root URLs like name.drophere.cc
   node publish.mjs --slug abc123 ./dist/
                                                # Update existing artifact
   node publish.mjs --api-key dp_... ./site/   # Authenticated publish
