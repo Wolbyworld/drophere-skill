@@ -63,7 +63,7 @@ POST /api/auth/agent/verify-code
 
 **Body:**
 ```json
-{ "email": "user@example.com", "code": "123456" }
+{ "email": "user@example.com", "code": "ABCD-EFGH" }
 ```
 
 **Response (200):**
@@ -75,6 +75,8 @@ POST /api/auth/agent/verify-code
   "isNewUser": false
 }
 ```
+
+Auth codes use the `XXXX-XXXX` format: eight uppercase letters/digits split by a hyphen. Verification accepts the hyphenated form shown in the email; agents should pass it through exactly as the user provides it.
 
 The `apiKey` is permanent — store it securely and use it as a Bearer token for all authenticated endpoints.
 
@@ -405,6 +407,7 @@ POST /api/v1/artifact
     "title": "My Site",
     "description": "A demo page"
   },
+  "slug": "client-demo",
   "source": "cli"
 }
 ```
@@ -417,13 +420,13 @@ POST /api/v1/artifact
 | `files[].contentType` | `string` | Yes | MIME type |
 | `files[].hash` | `string` | No | SHA-256 hash for incremental deploys |
 | `ttlSeconds` | `number` | No | Expiry for authenticated users. Anonymous always = 24h |
-| `slug` | `string` | No | Paid vanity artifact URL slug. Authenticated persistent artifacts only. Lowercase letters, numbers, and hyphens, 2-63 chars. |
+| `slug` | `string` | No | Paid vanity artifact URL slug. Authenticated persistent artifacts only. Lowercase letters, numbers, and hyphens, 2-63 chars; no leading/trailing hyphen. |
 | `viewer` | `ViewerMetadata` | No | Optional `title`, `description`, `ogImagePath`, `spaMode`, `markdownDownload` |
 | `source` | `string` | No | Client/source label, max 100 chars. Also accepted via `x-drophere-client` header. |
 
 All `viewer` fields are optional. Defaults: `title`/`description` omitted, `ogImagePath` absent or empty, `spaMode=false`, and `markdownDownload=false`.
 
-**Vanity artifact URLs:** Paid Unlimited and Unlimited Pro accounts may pass `slug` at creation time to publish at `https://{slug}.drophere.cc/`. Use `slug` only when the user explicitly asks for a vanity artifact URL. Custom slugs require authenticated persistent artifacts; do not combine `slug` with `ttlSeconds`. On `409`, ask the user for a different slug; do not invent one unless the user requested suggestions.
+**Vanity artifact URLs:** Paid Unlimited and Unlimited Pro accounts may pass `slug` at creation time to publish at `https://{slug}.drophere.cc/`. Use `slug` only when the user explicitly asks for a vanity artifact URL. Custom slugs require authenticated persistent artifacts; do not combine `slug` with `ttlSeconds`. Slugs must be lowercase DNS labels: `a-z`, `0-9`, hyphen, 2-63 chars, no leading/trailing hyphen. Reserved platform names such as `admin`, `api`, `www`, `docs`, `app`, `login`, `status`, and `support` are blocked. On `409` with `code: "CUSTOM_SLUG_UNAVAILABLE"`, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
 **Response (201):**
 ```json
@@ -448,6 +451,15 @@ All `viewer` fields are optional. Defaults: `title`/`description` omitted, `ogIm
 - `claimToken` — only returned for anonymous uploads. Store it to update/finalize later.
 
 REST create/update responses use `uploads` for direct HTTP `PUT`s. MCP create/update tools instead return `mcpUploads`, `directHttpUploads`, and `nextStep`; MCP clients should follow `mcpUploads` and reserve `directHttpUploads` for clients that can upload raw bytes themselves.
+
+**Create errors:**
+| Status | Code | Meaning |
+|--------|------|---------|
+| 400 | `CUSTOM_SLUG_INVALID` | `slug` is not a valid lowercase DNS label or is reserved |
+| 400 | `CUSTOM_SLUG_REQUIRES_PERSISTENT_ARTIFACT` | `slug` was combined with `ttlSeconds`; vanity slugs are persistent only |
+| 402 | `ACCOUNT_REQUIRED` | A signed-in account is required before claiming a vanity artifact slug |
+| 402 | `PLAN_REQUIRED` | The signed-in account does not have `custom_artifact_slugs` |
+| 409 | `CUSTOM_SLUG_UNAVAILABLE` | The slug is already used by an artifact, retained reservation, or handle |
 
 **Upload size limits:**
 
@@ -1400,6 +1412,19 @@ Cached for 1 hour (`Cache-Control: public, max-age=3600`).
 
 Handles provide a subdomain namespace: `handle.drophere.cc/location`.
 
+### Handle vs. Vanity Artifact Slug
+
+Both handles and vanity artifact slugs use the same `{name}.drophere.cc` subdomain namespace, but they are different products:
+
+| Feature | URL shape | Purpose | Limits |
+|---------|-----------|---------|--------|
+| Vanity artifact slug | `https://client-demo.drophere.cc/` | One artifact gets the root subdomain directly | Paid persistent artifact, chosen only at creation time |
+| Handle | `https://acme.drophere.cc/docs` | Account namespace that routes paths to one or more artifacts | One handle per account |
+
+Do not claim or rename a handle when the user asks for a vanity artifact URL. Use the `slug` field on artifact creation instead.
+
+The namespace is exclusive. A name already used by an artifact slug, retained vanity slug reservation, or handle cannot be claimed by the other mechanism. New generated artifact slugs also skip retained vanity reservations and handles, so there is no runtime precedence to choose for new claims. If a request conflicts, REST returns `409` with either `CUSTOM_SLUG_UNAVAILABLE` or `HANDLE_UNAVAILABLE`; agents should ask the user for the next name.
+
 ### Claim Handle
 
 ```
@@ -1425,10 +1450,11 @@ POST /api/v1/handle
 **Validation:** 2-30 chars, lowercase alphanumeric + hyphens, no leading/trailing hyphens. Reserved words (`admin`, `api`, `www`, `app`, etc.) are blocked.
 
 **Errors:**
-| Status | Error |
-|--------|-------|
-| 400 | Invalid handle format |
-| 409 | You already have a handle / Handle is already taken |
+| Status | Code | Error |
+|--------|------|-------|
+| 400 | `HANDLE_INVALID` | Invalid handle format |
+| 409 | `HANDLE_ALREADY_SET` | The account already has one handle. The response includes the current `handle` and `hostname`. |
+| 409 | `HANDLE_UNAVAILABLE` | The handle name is already used by a handle, artifact slug, or retained vanity reservation |
 
 ### Get Handle
 
@@ -1507,7 +1533,7 @@ POST /api/v1/links
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `location` | Yes | Path segment (e.g., `docs`, `blog`) |
+| `location` | Yes | Path segment (e.g., `docs`, `blog`). Use empty string `""` for the bare root (`https://handle.drophere.cc/`). `__root__` is accepted as a compatibility alias and stored/returned as `""`. |
 | `slug` | Yes | Target artifact slug |
 | `domain` | No | Custom domain. If omitted, uses your handle |
 
@@ -1515,6 +1541,17 @@ POST /api/v1/links
 ```json
 { "namespace": "my-project", "location": "docs", "slug": "abc123" }
 ```
+
+**Root link recipe:** to serve an artifact at the bare handle URL, create a link with `location: ""`:
+
+```bash
+curl -X POST https://drophere.cc/api/v1/links \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{ "location": "", "slug": "abc123" }'
+```
+
+That makes `https://my-project.drophere.cc/` resolve to the artifact. Add a second link such as `location: "docs"` only when you also want `https://my-project.drophere.cc/docs`.
 
 ### List Links
 
@@ -1528,10 +1565,13 @@ GET /api/v1/links
 ```json
 {
   "links": [
+    { "location": "", "slug": "abc123", "namespace": "my-project", "namespaceType": "handle" },
     { "location": "docs", "slug": "abc123", "namespace": "my-project", "namespaceType": "handle" }
   ]
 }
 ```
+
+Root links are listed with canonical `location: ""`, never `__root__`.
 
 ### Get Link
 
@@ -1539,7 +1579,7 @@ GET /api/v1/links
 GET /api/v1/links/:location
 ```
 
-**Auth:** Required. Use `__root__` for the root location.
+**Auth:** Required. Use `__root__` in the URL path when reading the root link because a path parameter cannot be empty. The response returns canonical `location: ""`.
 
 **Response (200):**
 ```json
@@ -1553,6 +1593,8 @@ PATCH /api/v1/links/:location
 ```
 
 **Auth:** Required
+
+Use `PATCH /api/v1/links/__root__` to update the root link.
 
 **Body:**
 ```json
@@ -1570,7 +1612,7 @@ PATCH /api/v1/links/:location
 DELETE /api/v1/links/:location
 ```
 
-**Auth:** Required. Optional query param `?domain=example.com` for domain-scoped links.
+**Auth:** Required. Optional query param `?domain=example.com` for domain-scoped links. Use `DELETE /api/v1/links/__root__` to delete the root link.
 
 **Response (200):**
 ```json
@@ -1977,11 +2019,12 @@ Limits and errors:
 
 ## Error Format
 
-All errors follow a consistent format:
+Errors always include a human-readable `error` string. Feature-specific errors may also include a stable machine-readable `code` and additional `details`.
 
 ```json
 {
   "error": "Human-readable error message",
+  "code": "OPTIONAL_STABLE_MACHINE_READABLE_CODE",
   "details": "Optional additional context"
 }
 ```

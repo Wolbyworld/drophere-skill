@@ -86,6 +86,8 @@ Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=fal
 
 Vanity artifact URLs are available to paid accounts through the optional `slug` field on `drophere_publish_artifact`, `drophere_create_static_site`, and `drophere_create_artifact`. Use `slug` only when the user explicitly asks for a vanity artifact URL. Custom slugs require persistent artifacts; do not pass `ttlSeconds` with `slug`. On a `409` slug conflict, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
+Handle URLs and vanity artifact URLs both use `{name}.drophere.cc`, but they are different products. A handle is one account namespace for routing paths like `acme.drophere.cc/gallery`; a vanity artifact slug is a direct root URL for one artifact like `client-demo.drophere.cc/`. Do not claim or rename a handle when the user asks for a vanity artifact URL. Names are exclusive across handles, artifact slugs, and retained vanity reservations.
+
 For a bad pending version, update with corrected files or discard the pending version instead of deleting the whole artifact unless the user wants it removed.
 
 ### Token-efficient publishing
@@ -280,7 +282,10 @@ curl -X POST https://drophere.cc/api/auth/agent/verify-code \
 node publish.mjs [OPTIONS] <directory | file...>
 
 Options:
-  --slug SLUG         Update existing artifact instead of creating new
+  --slug SLUG         Update an existing artifact by slug
+  --update-slug SLUG  Update an existing artifact by slug (alias for --slug)
+  --claim-slug SLUG   Claim a paid vanity slug when creating a new artifact
+  --new               Ignore .drophere/state.json and create a new artifact
   --api-key KEY       API key for authenticated uploads
   --title TITLE       Set viewer title (for auto-viewer pages)
   --description DESC  Set viewer description
@@ -296,6 +301,14 @@ Options:
 4. **Finalize** — Marks the version as live
 
 State is saved to `.drophere/state.json` in the working directory. Re-running `publish.mjs` in the same directory automatically does an incremental deploy (only uploads changed files).
+
+To create a vanity artifact URL from the CLI, authenticate first and then pass `--claim-slug` on create:
+
+```bash
+DROPHERE_API_KEY=dp_... node "$PUBLISH" --claim-slug client-demo ./dist/
+```
+
+Use `--slug existing-slug` or `--update-slug existing-slug` only when updating an existing artifact without relying on `.drophere/state.json`.
 
 ## Common Patterns
 
@@ -326,6 +339,28 @@ node "$PUBLISH" ./site/
 # Later — only uploads changed files
 node "$PUBLISH" ./site/
 ```
+
+### Route an artifact under a handle
+
+Handles route paths to artifacts. To serve an artifact at the bare handle URL, set a link with empty-string location:
+
+```json
+{
+  "tool": "drophere_set_link",
+  "arguments": { "location": "", "slug": "artifact-slug" }
+}
+```
+
+That makes `https://your-handle.drophere.cc/` serve the artifact. To serve the same or another artifact at a path, set `location` to the path without a leading slash:
+
+```json
+{
+  "tool": "drophere_set_link",
+  "arguments": { "location": "docs", "slug": "artifact-slug" }
+}
+```
+
+REST uses the same body shape with `POST /api/v1/links`. `__root__` is only a compatibility alias for root and is stored/returned as `""`; prefer `location: ""` when creating or setting links. Use `GET/PATCH/DELETE /api/v1/links/__root__` only when the root location has to appear in the URL path.
 
 ## Key-Value Store
 

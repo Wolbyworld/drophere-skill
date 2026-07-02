@@ -76,7 +76,10 @@ function usage() {
 Publish static files to drophere.cc.
 
 Options:
-  --slug SLUG        Update an existing artifact (uses state file claimToken if anonymous)
+  --slug SLUG        Update an existing artifact by slug
+  --update-slug SLUG Update an existing artifact by slug (alias for --slug)
+  --claim-slug SLUG  Claim a paid vanity artifact slug when creating a new artifact
+  --new              Ignore .drophere/state.json and create a new artifact
   --api-key KEY      API key for authenticated uploads
   --title TITLE      Set viewer title
   --description DESC Set viewer description
@@ -99,7 +102,10 @@ Authentication priority:
 
 Examples:
   node publish.mjs ./dist/                    # Anonymous publish
-  node publish.mjs --slug abc123 ./dist/      # Update existing artifact
+  node publish.mjs --api-key dp_... --claim-slug client-demo ./dist/
+                                               # Create https://client-demo.drophere.cc/
+  node publish.mjs --slug abc123 ./dist/
+                                               # Update existing artifact
   node publish.mjs --api-key dp_... ./site/   # Authenticated publish
   node publish.mjs --payment tempo ./dist/     # Start Tempo MPP paid publish
   node publish.mjs --payment tempo --mpp-tx-hash 0x... ./dist/
@@ -114,6 +120,8 @@ Examples:
 function parseArgs(argv) {
   const args = {
     slug: "",
+    updateSlug: "",
+    claimSlug: "",
     apiKey: "",
     title: "",
     description: "",
@@ -123,6 +131,7 @@ function parseArgs(argv) {
     mppSourceDid: "",
     mppAuthorization: "",
     dryRun: false,
+    newArtifact: false,
     inputs: [],
   };
   let i = 0;
@@ -130,6 +139,8 @@ function parseArgs(argv) {
     const arg = argv[i];
     switch (arg) {
       case "--slug":       args.slug = argv[++i]; break;
+      case "--update-slug": args.updateSlug = argv[++i]; break;
+      case "--claim-slug": args.claimSlug = argv[++i]; break;
       case "--api-key":    args.apiKey = argv[++i]; break;
       case "--title":      args.title = argv[++i]; break;
       case "--description": args.description = argv[++i]; break;
@@ -139,6 +150,7 @@ function parseArgs(argv) {
       case "--mpp-source-did": args.mppSourceDid = argv[++i]; break;
       case "--mpp-authorization": args.mppAuthorization = argv[++i]; break;
       case "--dry-run":    args.dryRun = true; break;
+      case "--new":        args.newArtifact = true; break;
       case "--base-url":   API_BASE = argv[++i]; break;
       case "--help": case "-h": usage(); break;
       default:
@@ -469,7 +481,8 @@ async function uploadFiles(uploads, fileMap) {
 }
 
 async function machinePublish(args, files, fileMap) {
-  if (args.slug) throw new Error("--payment tempo creates a new paid machine artifact; --slug updates are not supported");
+  if (args.slug || args.updateSlug) throw new Error("--payment tempo creates a new paid machine artifact; --slug updates are not supported");
+  if (args.claimSlug) throw new Error("--payment tempo creates accountless machine artifacts; vanity slugs require authenticated account artifacts");
   if (args.apiKey) throw new Error("--payment tempo is accountless and cannot be combined with --api-key");
   if (args.ttl) throw new Error("--ttl is not supported for --payment tempo; the server uses MPP_ARTIFACT_TTL_DAYS");
 
@@ -585,8 +598,8 @@ async function main() {
   if (apiKey) { debug("Using authenticated mode"); }
   else { debug("Using anonymous mode (24h TTL)"); }
 
-  // Warn anonymous users on creates (no --slug, no existing state)
-  const isCreate = !args.slug && !existsSync(STATE_FILE);
+  // Warn anonymous users on creates (no explicit update target, no existing state)
+  const isCreate = !args.slug && !args.updateSlug && !args.claimSlug && !existsSync(STATE_FILE);
   if (!apiKey && isCreate) {
     warn("No API key found — anonymous publish (5 creates/hour, 24h TTL)");
     warn("Authenticate for 60 creates/hour and permanent hosting: see --help");
@@ -616,10 +629,21 @@ async function main() {
   }
 
   // Load state
-  let slug = args.slug;
+  let slug = args.updateSlug || args.slug;
+  const requestedSlug = args.claimSlug;
   let claimToken = "";
 
-  if (!slug && existsSync(STATE_FILE)) {
+  if (requestedSlug && !apiKey) {
+    throw new Error("--claim-slug claims a paid vanity artifact URL and requires authentication. Set DROPHERE_API_KEY or pass --api-key.");
+  }
+  if (requestedSlug && args.ttl) {
+    throw new Error("--claim-slug claims a persistent vanity artifact URL; omit --ttl.");
+  }
+  if (requestedSlug && slug) {
+    throw new Error("Use either --claim-slug for create-time vanity URLs or --slug/--update-slug for updates, not both.");
+  }
+
+  if (!slug && !requestedSlug && !args.newArtifact && existsSync(STATE_FILE)) {
     try {
       const state = JSON.parse(readFileSync(STATE_FILE, "utf8"));
       slug = state.slug || "";
@@ -669,8 +693,9 @@ async function main() {
 
     response = await withRetry(() => apiRequest("PUT", `${API_BASE}/api/v1/artifact/${slug}`, body, apiKey));
   } else {
-    log("Creating new artifact...");
+    log(requestedSlug ? `Creating new artifact with vanity slug: ${requestedSlug}` : "Creating new artifact...");
     const body = { files };
+    if (requestedSlug) body.slug = requestedSlug;
 
     // Optional viewer metadata
     if (args.title || args.description) {
