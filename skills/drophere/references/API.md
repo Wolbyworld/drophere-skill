@@ -854,6 +854,65 @@ GET /api/v1/artifacts
 
 `viewerMetadata` is the full JSON blob (`null` when unset). `title` is a convenience extraction of `viewerMetadata.title` (trimmed; `null` when missing or empty). `access` and `collaboration` are included so owners and agents can discover the current view gate and comment layer before calling the access or comment APIs.
 
+### Library
+
+The private library is the owner rediscovery layer. Every authenticated artifact owned by the user appears automatically, including random artifact slugs and paid vanity artifact slugs. Anonymous artifacts appear after claim. Library routes are aliases; the artifact slug remains the immutable identity.
+
+```
+GET /api/v1/library/items
+```
+
+**Auth:** Required
+
+**Query params:** `q`, `collectionId`, `tag`, `source`, `status`, `visibility`, `favorite=true`, `routed=true`, `archived=true`, `limit`, `cursor`.
+
+**Response (200):**
+```json
+{
+  "items": [
+    {
+      "artifactSlug": "abc123",
+      "artifactUrl": "https://abc123.drophere.cc/",
+      "preferredUrl": "https://alice.drophere.cc/docs",
+      "routes": [
+        { "namespaceType": "handle", "namespace": "alice", "location": "docs", "slug": "abc123", "url": "https://alice.drophere.cc/docs" }
+      ],
+      "title": "Launch docs",
+      "summary": "Customer-facing launch notes",
+      "tags": ["launch", "docs"],
+      "collections": [{ "id": "uuid", "name": "Launch", "slug": "launch" }],
+      "favorite": true,
+      "archived": false,
+      "sourceLabel": "mcp",
+      "status": "active",
+      "visibility": "public",
+      "updatedAt": "2026-03-11T10:01:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+```
+GET /api/v1/library/items/:artifactSlug
+PATCH /api/v1/library/items/:artifactSlug
+GET /api/v1/library/items/:artifactSlug/route-suggestions
+GET /api/v1/library/items/:artifactSlug/related
+```
+
+`PATCH` accepts `title`, `summary`, `tags`, `favorite`, `archived`, and `sourceLabel`. Route suggestions return handle paths plus collision and prefix-shadow information. Related items are deterministic V1 recommendations based on shared tags, source, collections, route prefixes, and title overlap.
+
+```
+GET /api/v1/library/collections
+POST /api/v1/library/collections
+PATCH /api/v1/library/collections/:collectionId
+DELETE /api/v1/library/collections/:collectionId
+POST /api/v1/library/collections/:collectionId/items
+DELETE /api/v1/library/collections/:collectionId/items/:artifactSlug
+```
+
+Collections are private to the authenticated user. Adding an item to a collection is idempotent and only works for artifacts owned by the same user.
+
 ### Delete Artifact
 
 ```
@@ -1585,9 +1644,10 @@ Root links are listed with canonical `location: ""`, never `__root__`.
 
 ```
 GET /api/v1/links/:location
+GET /api/v1/link?location=docs
 ```
 
-**Auth:** Required. Use `__root__` in the URL path when reading the root link because a path parameter cannot be empty. The response returns canonical `location: ""`.
+**Auth:** Required. Use `__root__` in the URL path when reading the root link because a path parameter cannot be empty, or use the query-style `/api/v1/link?location=` form for an empty location. The response returns canonical `location: ""`.
 
 **Response (200):**
 ```json
@@ -1598,15 +1658,16 @@ GET /api/v1/links/:location
 
 ```
 PATCH /api/v1/links/:location
+PATCH /api/v1/link
 ```
 
 **Auth:** Required
 
-Use `PATCH /api/v1/links/__root__` to update the root link.
+Use `PATCH /api/v1/links/__root__` to update the root link in path style, or `PATCH /api/v1/link` with `location` in the JSON body.
 
 **Body:**
 ```json
-{ "slug": "new-slug" }
+{ "location": "docs", "slug": "new-slug" }
 ```
 
 **Response (200):**
@@ -1618,9 +1679,10 @@ Use `PATCH /api/v1/links/__root__` to update the root link.
 
 ```
 DELETE /api/v1/links/:location
+DELETE /api/v1/link?location=docs
 ```
 
-**Auth:** Required. Optional query param `?domain=example.com` for domain-scoped links. Use `DELETE /api/v1/links/__root__` to delete the root link.
+**Auth:** Required. Optional query param `?domain=example.com` for domain-scoped links. Use `DELETE /api/v1/links/__root__` to delete the root link in path style, or the query-style `/api/v1/link?location=` form for an empty location.
 
 **Response (200):**
 ```json
@@ -1929,6 +1991,7 @@ For a bad pending version, update with a corrected manifest or discard the pendi
 | Area | Tools |
 |------|-------|
 | Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_list_artifact_versions`, `drophere_list_files`, `drophere_get_file`, `drophere_get_artifact_access` |
+| Library | `drophere_list_library_items`, `drophere_update_library_item`, `drophere_create_library_collection`, `drophere_list_library_collections`, `drophere_add_library_item_to_collection`, `drophere_suggest_library_routes`, `drophere_find_related_library_items` |
 | Artifact write | `drophere_publish_artifact`, `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_publish_uploaded_version`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
 | Edit grants | `drophere_create_edit_grant`, `drophere_list_edit_grants`, `drophere_revoke_edit_grant` |
 | Upload | `drophere_upload_file` |
