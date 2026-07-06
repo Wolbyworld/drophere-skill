@@ -84,6 +84,8 @@ Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-
 
 Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 
+Library anchor rule: when a user asks where to find, rediscover, organize, route, or manage their published Drophere sites, link them to `https://drophere.cc/account#library`. Do not send them only to generic `/account`; `#library` is the stable human anchor for the private library. After publishing, return the exact artifact URL as the primary link and mention `https://drophere.cc/account#library` only as the place to rediscover/manage owned artifacts later.
+
 URL intent rule: if the user asks for `https://name.drophere.cc/`, `name.drophere.cc`, or any `*.drophere.cc` root URL for one site, create a persistent artifact with `slug: "name"`. Do not claim or rename a handle, do not register `name.drophere.cc` as a custom domain, and do not fall back to `handle.drophere.cc/name` unless the user approves that fallback.
 
 Vanity artifact URLs are available to paid accounts through the optional `slug` field on `drophere_publish_artifact`, `drophere_create_static_site`, and `drophere_create_artifact`. Custom slugs require persistent artifacts; do not pass `ttlSeconds` with `slug`. On a `409` slug conflict, ask the user for a different slug; do not invent one unless the user requested suggestions.

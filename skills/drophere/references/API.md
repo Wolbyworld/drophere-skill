@@ -858,6 +858,8 @@ GET /api/v1/artifacts
 
 The private library is the owner rediscovery layer. Every authenticated artifact owned by the user appears automatically, including random artifact slugs and paid vanity artifact slugs. Anonymous artifacts appear after claim. Library routes are aliases; the artifact slug remains the immutable identity.
 
+Human UI anchor: `https://drophere.cc/account#library`. Agents should use that exact URL when linking a user to the private library for rediscovery, organization, routing, or cleanup. Keep returning the specific artifact URL (`artifactUrl` or `preferredUrl`) when the user asks for the published site itself.
+
 ```
 GET /api/v1/library/items
 ```
