@@ -5,6 +5,7 @@ description: >
   "deploy to a URL", "host a static site", "share an HTML file publicly",
   "upload to drophere", "protect a page", "restrict access",
   "add email access control", "make page private", "share privately",
+  "tag an artifact", "tag documents", "organize artifact knowledge",
   "enable comments", "add anchored comments", "review this artifact",
   "collaborate on a drophere artifact", "make this artifact commentable",
   or needs to make local files accessible via a public URL.
@@ -186,6 +187,33 @@ Artifact owners can create deploy-only edit grants for collaborators or other ag
 The raw token is returned only once. It can publish new versions for that artifact through the REST update/finalize flow with `X-Drophere-Edit-Token`, but it cannot delete, rollback, change access/passwords, manage comments, manage variables, duplicate artifacts, route handles/domains, or create/revoke grants.
 
 When publishing with an edit grant, pass `baseVersionId` to `PUT /api/v1/artifact/:slug`. If the live version changed since that base, Drophere returns `409`; fetch the current manifest and create a new update instead of overwriting.
+
+## Artifact Tags
+
+Drophere supports private artifact-level tags for knowledge discovery. Use MCP tools first when available:
+
+- `drophere_get_artifact_tags` — read current private tags
+- `drophere_set_artifact_tags` — replace the full tag set
+- `drophere_list_tags` — list the account tag vocabulary with artifact counts
+
+For document-like artifacts you publish or ingest, set 3-8 stable lowercase tags after the artifact exists. Good tags describe durable topics, projects, customers, or workflows. Do not tag generic file types unless they are meaningful to the user.
+
+Important behavior:
+
+- Tags are owner-private and artifact-level, not version-level.
+- Tags normalize to lowercase `kebab-case`; each tag is max 40 characters and each artifact has max 20 tags.
+- `drophere_set_artifact_tags` and `PATCH /tags` replace the full set. Read existing tags first if preserving or extending them.
+- Preserve explicit user-authored tags. Do not rewrite existing tags unless the user asks or the artifact is newly created.
+- MCP defaults `source` to `agent`; REST defaults `source` to `user`.
+
+REST fallback:
+
+```bash
+curl -X PATCH "https://drophere.cc/api/v1/artifact/${SLUG}/tags" \
+  -H "Authorization: Bearer $DROPHERE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tags":["strategy","q1-plan"],"source":"agent","confidence":0.8}'
+```
 
 ## Collaboration Comments
 

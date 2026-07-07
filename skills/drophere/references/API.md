@@ -777,6 +777,83 @@ PATCH /api/v1/artifact/:slug/metadata
 }
 ```
 
+### Artifact Tags
+
+Private artifact-level tags for knowledge discovery and agent search. Tags are owner-only metadata; they are not exposed on public artifact pages.
+
+Tags are normalized by trimming, lowercasing, and collapsing whitespace/hyphens to `-`. Empty tags are rejected, each tag is limited to 40 characters, and each artifact can have at most 20 tags. `PATCH /tags` replaces the full tag set, so agents should read existing tags before preserving or extending them.
+
+#### Get Artifact Tags
+
+```
+GET /api/v1/artifact/:slug/tags
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "tags": [
+    { "tag": "strategy", "source": "agent", "confidence": 0.82, "createdAt": "2026-03-13T10:00:00Z", "updatedAt": "2026-03-13T10:00:00Z" }
+  ],
+  "count": 1
+}
+```
+
+#### Replace Artifact Tags
+
+```
+PATCH /api/v1/artifact/:slug/tags
+```
+
+**Auth:** Required
+
+**Body:**
+```json
+{
+  "tags": ["Strategy", "Q1 Plan"],
+  "source": "agent",
+  "confidence": 0.82
+}
+```
+
+`source` is optional and defaults to `user` for REST. Valid values are `agent`, `user`, and `import`. `confidence` is optional and must be between `0` and `1` when provided.
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "tags": [
+    { "tag": "q1-plan", "source": "agent", "confidence": 0.82, "createdAt": "2026-03-13T10:00:00Z", "updatedAt": "2026-03-13T10:00:00Z" },
+    { "tag": "strategy", "source": "agent", "confidence": 0.82, "createdAt": "2026-03-13T10:00:00Z", "updatedAt": "2026-03-13T10:00:00Z" }
+  ],
+  "count": 2
+}
+```
+
+#### List Tags
+
+```
+GET /api/v1/tags
+```
+
+**Auth:** Required
+
+Returns the caller's private tag vocabulary with artifact counts.
+
+**Response (200):**
+```json
+{
+  "tags": [
+    { "tag": "strategy", "count": 4 },
+    { "tag": "q1-plan", "count": 1 }
+  ],
+  "count": 2
+}
+```
+
 ### Get Artifact Details
 
 ```
@@ -1459,7 +1536,8 @@ Returns a compact list of API capabilities. Useful for agents to discover availa
     { "name": "publish", "summary": "Upload static files to the web instantly", "endpoints": [...] },
     { "name": "vanity-artifact-urls", "summary": "Paid persistent artifacts can request a custom artifact subdomain at creation time", "endpoints": ["POST /api/v1/artifact"], "tools": ["drophere_publish_artifact", "drophere_create_static_site", "drophere_create_artifact"] },
     { "name": "collaboration", "summary": "Enable anchored comments, replies, moderation, and attachments", "endpoints": [...] },
-    { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_list_files", "drophere_get_file", "drophere_publish_uploaded_version"] }
+    { "name": "artifact-tags", "summary": "Private artifact-level tags for knowledge discovery and agent search", "endpoints": [...], "tools": ["drophere_get_artifact_tags", "drophere_set_artifact_tags", "drophere_list_tags"] },
+    { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_list_files", "drophere_get_file", "drophere_list_tags", "drophere_publish_uploaded_version"] }
   ],
   "docsUrl": "https://drophere.cc/skill/references/API.md",
   "markdownDocsUrl": "https://drophere.cc/skill/references/API.md",
@@ -1995,6 +2073,7 @@ For a bad pending version, update with a corrected manifest or discard the pendi
 | Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_list_artifact_versions`, `drophere_list_files`, `drophere_get_file`, `drophere_get_artifact_access` |
 | Library | `drophere_list_library_items`, `drophere_update_library_item`, `drophere_create_library_collection`, `drophere_list_library_collections`, `drophere_add_library_item_to_collection`, `drophere_suggest_library_routes`, `drophere_find_related_library_items` |
 | Artifact write | `drophere_publish_artifact`, `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_publish_uploaded_version`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
+| Tags | `drophere_get_artifact_tags`, `drophere_set_artifact_tags`, `drophere_list_tags` |
 | Edit grants | `drophere_create_edit_grant`, `drophere_list_edit_grants`, `drophere_revoke_edit_grant` |
 | Upload | `drophere_upload_file` |
 | Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
