@@ -721,6 +721,107 @@ curl -X POST "https://drophere.cc/api/v1/artifact/abc123/finalize" \
 
 Finalize succeeds only when the pending version was created by that grant and the artifact's live `currentVersionId` still matches the pending version's `baseVersionId`.
 
+### HTML Quick Edit (Private Beta)
+
+HTML Quick Edit changes one visible static text node while preserving every other source byte, then publishes the result as a new immutable artifact version. It is server-gated and currently enabled only for verified `@luzia.com` Drophere accounts. The authenticated account must own the artifact.
+
+The account library exposes **edit text** for eligible artifacts. The same workflow is available through REST for agents and scripts.
+
+#### Resolve Account Features
+
+```
+GET /api/v1/me/features
+```
+
+**Auth:** Required (Bearer token or Drophere account session)
+
+**Response (200):**
+```json
+{ "features": { "htmlQuickEdit": true } }
+```
+
+#### Preview Text Edit
+
+```
+POST /api/v1/artifact/:slug/quick-edits/preview
+```
+
+**Auth:** Required (artifact owner Bearer token or same-origin Drophere account session)
+
+**Body:**
+```json
+{
+  "filePath": "index.html",
+  "baseVersionId": "current-version-id",
+  "locator": {
+    "elementPath": [
+      { "tag": "main", "index": 0 },
+      { "tag": "p", "index": 2 }
+    ],
+    "textIndex": 0
+  },
+  "originalText": "Old quarterly target",
+  "replacementText": "New quarterly target",
+  "sessionId": "optional-client-session-id"
+}
+```
+
+Path indices are zero-based among same-tag element siblings. `textIndex` is zero-based among direct text-node children. Preview reads the immutable live source and returns the canonical before/after operation without writing a version.
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "filePath": "index.html",
+  "baseVersionId": "current-version-id",
+  "supported": true,
+  "preview": {
+    "before": "Old quarterly target",
+    "after": "New quarterly target"
+  }
+}
+```
+
+#### Publish Text Edit
+
+```
+POST /api/v1/artifact/:slug/quick-edits/publish
+```
+
+Uses the same body as preview, with optional `summary`. Publishing rechecks feature access, ownership, the source locator, and `baseVersionId`; copies unchanged files to a new immutable version; and atomically promotes that version. Existing pending uploads are never overwritten.
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "versionId": "new-version-id",
+  "baseVersionId": "current-version-id",
+  "siteUrl": "https://abc123.drophere.cc/",
+  "summary": "Quick edit: update visible text"
+}
+```
+
+**Limits and safety:**
+- HTML source must be at most 2 MiB.
+- Replacement text must be non-empty and at most 20,000 characters.
+- Quick Edit refuses runtime-generated content and text inside `script`, `style`, `textarea`, `input`, `select`, `svg`, `math`, `canvas`, `template`, or `noscript`.
+- Replacement text is HTML-escaped and cannot introduce markup or scripts.
+- Publish is limited to 30 operations per minute per user.
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| 400 | `INVALID_BODY`, `INVALID_FILE_PATH`, `BASE_VERSION_REQUIRED`, `INVALID_PATCH` | Request body or required patch fields are invalid |
+| 401 | `AUTHENTICATION_REQUIRED` | No valid account or Bearer authentication |
+| 403 | `INVALID_ORIGIN` | Account-cookie mutation did not come from the main Drophere origin |
+| 404 | `FEATURE_NOT_ENABLED`, `ARTIFACT_NOT_FOUND`, `FILE_NOT_FOUND` | Feature, owned artifact, or target file is unavailable |
+| 409 | `NO_LIVE_VERSION`, `STALE_BASE_VERSION`, `PENDING_VERSION_EXISTS` | Artifact state prevents a safe immutable publish |
+| 413 | `HTML_TOO_LARGE` | Source exceeds the 2 MiB editor cap |
+| 415 | `UNSUPPORTED_FILE_TYPE`, `UNSUPPORTED_ENCODING` | Target is not UTF-8 HTML |
+| 422 | `INVALID_LOCATOR`, `TARGET_NOT_FOUND`, `TARGET_CHANGED`, `UNSUPPORTED_ELEMENT`, `EMPTY_REPLACEMENT`, `TEXT_TOO_LARGE` | Source patch could not be applied safely |
+| 429 | `RATE_LIMITED` | Per-user publish limit exceeded |
+| 500 | `SOURCE_UNAVAILABLE`, `STORAGE_FAILED`, `PUBLISH_FAILED` | Source read, object preparation, or atomic promotion failed |
+| 503 | `RATE_LIMIT_UNAVAILABLE` | Publish rate-limit service is temporarily unavailable |
+
 ### Claim Artifact
 
 Transfer an anonymous artifact to your authenticated account. Removes expiry and claim token.

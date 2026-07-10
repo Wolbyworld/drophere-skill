@@ -188,6 +188,20 @@ The raw token is returned only once. It can publish new versions for that artifa
 
 When publishing with an edit grant, pass `baseVersionId` to `PUT /api/v1/artifact/:slug`. If the live version changed since that base, Drophere returns `409`; fetch the current manifest and create a new update instead of overwriting.
 
+## HTML Quick Edit (Private Beta)
+
+Verified `@luzia.com` Drophere accounts can make source-preserving visible-text edits to HTML artifacts they own. Check `GET /api/v1/me/features` first; proceed only when `features.htmlQuickEdit` is `true`.
+
+Use the REST API described in `references/API.md`:
+
+1. Read the current artifact and its `currentVersionId` with `drophere_get_artifact`.
+2. Build a locator with zero-based same-tag `elementPath` entries from `<body>` and a zero-based direct `textIndex`.
+3. Call `POST /api/v1/artifact/:slug/quick-edits/preview` with the locator, exact `originalText`, and `replacementText`.
+4. Show or inspect the returned before/after operation.
+5. Call the matching `/quick-edits/publish` endpoint with the same body and optional summary.
+
+Quick Edit is intentionally text-only. If the source is dynamic, the locator is ambiguous/stale, the artifact has a pending version, or the user wants layout/image/slide-structure changes, use the normal artifact update workflow instead. Never work around a `FEATURE_NOT_ENABLED` response.
+
 ## Artifact Tags
 
 Drophere supports private artifact-level tags for knowledge discovery. Use MCP tools first when available:
