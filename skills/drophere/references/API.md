@@ -532,6 +532,8 @@ PUT /api/v1/artifact/:slug
     { "path": "index.html", "size": 2048, "contentType": "text/html", "hash": "sha256:new..." },
     { "path": "style.css", "size": 512, "contentType": "text/css", "hash": "sha256:def..." }
   ],
+  "deletePaths": [],
+  "manifestMode": "merge",
   "claimToken": "ct_xyz789...",
   "baseVersionId": "current-version-id-for-edit-grants",
   "summary": "Short deploy summary"
@@ -560,7 +562,7 @@ PUT /api/v1/artifact/:slug
 ```
 
 - Only files in `uploads` need to be uploaded. Files in `skipped` matched by hash and will be copied server-side during finalize.
-- Edit grant tokens are artifact-scoped deploy tokens. They must send `baseVersionId`, and Drophere rejects the update with `409` if the live version has changed since that base.
+- Edit-token updates default to `manifestMode: "merge"`: supplied paths are changed or added, omitted paths carry forward, and deletion requires `deletePaths`. `manifestMode: "replace"` explicitly treats `files` as the complete manifest. Edit grants must send `baseVersionId`; Drophere rejects stale updates with `409`.
 - If a pending version was created with a bad manifest or bad files, prefer another update with the corrected manifest, or discard the pending version when appropriate. Use full artifact deletion only when you intend to remove the live artifact and all versions.
 
 **Errors:**
@@ -610,7 +612,7 @@ POST /api/v1/artifact/:slug/finalize
 
 ### Artifact Edit Grants
 
-Owner-managed deploy-only tokens for collaborative publishing. An edit grant is scoped to one artifact and can only create, upload, and finalize new versions for that artifact. It cannot delete, restore/rollback old versions, change visibility/passwords, manage comments, manage variables, route handles/domains, duplicate artifacts, or create/revoke other grants.
+Owner-managed scoped tokens for collaborative publishing. `deploy` grants are write-only credentials for callers that already have a complete local source tree. `editor` grants add manifest, raw-source, and comment reads so a token-only collaborator can make bounded changes safely. Neither kind can delete the artifact, restore/rollback versions, change visibility/passwords, mutate comments, manage variables, route handles/domains, duplicate artifacts, or create/revoke grants.
 
 The raw token is returned only once on creation. Drophere stores only a token hash.
 
@@ -626,11 +628,12 @@ POST /api/v1/artifact/:slug/edit-grants
 ```json
 {
   "name": "builder agent",
+  "kind": "editor",
   "ttlSeconds": 86400
 }
 ```
 
-`expiresAt` may be sent instead of `ttlSeconds`.
+`kind` defaults to `deploy`. `editor` produces the scopes `deploy`, `manifest:read`, `source:read`, and `comments:read`. `expiresAt` may be sent instead of `ttlSeconds`.
 
 **Response (201):**
 ```json
@@ -639,7 +642,8 @@ POST /api/v1/artifact/:slug/edit-grants
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "slug": "abc123",
     "name": "builder agent",
-    "scopes": ["deploy"],
+    "kind": "editor",
+    "scopes": ["deploy", "manifest:read", "source:read", "comments:read"],
     "expiresAt": "2026-06-29T12:00:00.000Z",
     "revokedAt": null,
     "lastUsedAt": null,
@@ -670,6 +674,166 @@ DELETE /api/v1/artifact/:slug/edit-grants/:grantId
 **Auth:** Required (artifact owner Bearer token)
 
 Revocation is idempotent. Existing pending versions created by the grant cannot be finalized with that grant after revocation.
+
+#### Edit Context
+
+```
+GET /api/v1/artifact/:slug/edit-context?include=manifest
+```
+
+**Auth:** `X-Drophere-Edit-Token`
+
+All active deploy grants receive `currentVersionId`, `fileCount`, and capability flags. `include=manifest` additionally returns the authoritative current manifest and requires `manifest:read`.
+
+**Response (200):**
+```json
+{
+  "slug": "abc123",
+  "currentVersionId": "version-id",
+  "fileCount": 2,
+  "capabilities": {
+    "deploy": true,
+    "readManifest": true,
+    "readSource": true,
+    "readComments": true
+  },
+  "files": [
+    {
+      "path": "index.html",
+      "size": 26845,
+      "contentType": "text/html",
+      "hash": "sha256:..."
+    }
+  ]
+}
+```
+
+`files` is present only for `include=manifest`. A deploy-only grant can use this endpoint to obtain `currentVersionId` but cannot request the manifest.
+
+#### Raw and Bounded Source Reads
+
+```
+GET /api/v1/artifact/:slug/source/:path
+GET /api/v1/artifact/:slug/source/:path?startLine=40&endLine=70
+GET /api/v1/artifact/:slug/source-search?query=heading&path=index.html
+```
+
+**Auth:** `X-Drophere-Edit-Token` with `source:read`
+
+The source route streams the stored R2 object before collaboration or Markdown transformations and supports HTTP byte ranges. Supplying `startLine` and `endLine` returns a bounded JSON text range. `format=json` returns the complete UTF-8 text file as an explicit fallback. Source search is literal, returns at most 20 matches and 32 KiB of context, and scans at most 2 MiB per request.
+
+**Line-range response (200):**
+```json
+{
+  "slug": "abc123",
+  "currentVersionId": "version-id",
+  "path": "index.html",
+  "startLine": 40,
+  "endLine": 70,
+  "totalLines": 240,
+  "text": "..."
+}
+```
+
+Raw responses include `Content-Type`, `Content-Length`, `ETag`, `Cache-Control: private, no-store`, and `Accept-Ranges: bytes`. A valid `Range` request returns `206` with `Content-Range`; an invalid or unsatisfiable range returns `416`. `format=json` returns `slug`, `currentVersionId`, `path`, `contentType`, `bytes`, and complete UTF-8 `text`.
+
+**Search response (200):**
+```json
+{
+  "slug": "abc123",
+  "currentVersionId": "version-id",
+  "query": "heading",
+  "matches": [
+    {
+      "path": "index.html",
+      "line": 52,
+      "column": 5,
+      "match": "heading",
+      "contextStartLine": 47,
+      "contextEndLine": 57,
+      "context": "...",
+      "contextTruncated": false
+    }
+  ],
+  "totalMatches": 1,
+  "truncated": false,
+  "scannedBytes": 26845,
+  "skipped": [],
+  "skippedCount": 0,
+  "skippedTruncated": false
+}
+```
+
+When `truncated` is true, inspect `skipped` and narrow by `path`; `totalMatches` counts every match in the files that were scanned. `skipped` is capped at 20 entries, while `skippedCount` reports the complete count.
+
+#### Token-Efficient Text Edits
+
+```
+POST /api/v1/artifact/:slug/edits
+```
+
+**Auth:** `X-Drophere-Edit-Token` with `deploy` and `source:read`
+
+```json
+{
+  "baseVersionId": "current-version-id",
+  "summary": "Address heading feedback",
+  "operations": [
+    {
+      "op": "replace_text",
+      "path": "index.html",
+      "expected": "Current heading",
+      "replacement": "New heading",
+      "requireMatches": 1
+    }
+  ]
+}
+```
+
+Operations apply sequentially to stored UTF-8 source. Zero, ambiguous, or unexpected match counts return `409` without creating a pending version. Drophere computes the new size and SHA-256 hash, writes only changed objects, carries every other file forward, and returns a pending `versionId` for the normal finalize call. Text operations are limited to 2 MiB per file, 20 operations, and 256 KiB of replacement input.
+
+Only one pending version may exist at a time. The request must use the `currentVersionId` observed during search/read; Drophere returns `409` if the live or pending state changed. The request body is limited to 512 KiB, changed output to 8 MiB total, and edit creation to 60 requests per grant per hour.
+
+**Response (201):**
+```json
+{
+  "slug": "abc123",
+  "versionId": "pending-version-id",
+  "baseVersionId": "current-version-id",
+  "readyToFinalize": true,
+  "changedFiles": [
+    {
+      "path": "index.html",
+      "replacements": 1,
+      "previousBytes": 26845,
+      "bytes": 26831,
+      "hash": "sha256:..."
+    }
+  ],
+  "copiedFileCount": 11,
+  "siteUrl": "https://abc123.drophere.cc/"
+}
+```
+
+An editor grant may also call `GET /api/v1/artifact/:slug/comments?status=open&limit=20&messageLimit=20`; this is read-only and returns the existing non-owner comment representation without requiring collaboration cookies or origin headers. Editor-token reads default to 20 threads and 20 messages per thread. Thread pagination is stable and cursor-based: pass the opaque `pagination.nextCursor` back as `cursor`. Each thread returns its root feedback plus the newest replies and a `messagePage` object with `limit`, `returned`, `hasMore`, and `attachmentsTruncated`, so bounded reads never silently hide newer feedback.
+
+**Editor endpoint errors:**
+
+| Status | Codes / meaning |
+|--------|-----------------|
+| 400 | `INVALID_SEARCH_QUERY`, `INVALID_CONTEXT_LINES`, `INVALID_SOURCE_PATH`, `INVALID_LINE_RANGE`, `INVALID_EDIT_REQUEST`, `INVALID_EDIT_OPERATION` |
+| 401 | `EDIT_TOKEN_REQUIRED` |
+| 403 | `EDIT_SCOPE_REQUIRED`, `MANIFEST_READ_SCOPE_REQUIRED`, `DEPLOY_SCOPE_REQUIRED`, `EDIT_GRANT_OWNER_MISMATCH` |
+| 404 | `ARTIFACT_NOT_FOUND`, `SOURCE_FILE_NOT_FOUND`, `SOURCE_OBJECT_NOT_FOUND` |
+| 409 | `ARTIFACT_NOT_ACTIVE`, `BASE_VERSION_CHANGED`, `PENDING_VERSION_EXISTS`, `ARTIFACT_STATE_CHANGED`, `NO_MATCH`, `AMBIGUOUS_MATCH`, `MATCH_COUNT_MISMATCH` |
+| 410 | `ARTIFACT_EXPIRED` |
+| 413 | `SOURCE_NOT_TEXT`, `TEXT_OPERATION_TOO_LARGE`, `EDIT_REQUEST_TOO_LARGE`, `EDIT_OUTPUT_TOO_LARGE`, `EDITED_ARTIFACT_TOO_LARGE` |
+| 416 | `INVALID_BYTE_RANGE` |
+| 429 | `EDIT_RATE_LIMITED` |
+| 500 | `CURRENT_VERSION_MISSING`, `EDIT_VERSION_CREATE_FAILED` |
+| 502 | `EDIT_STORAGE_FAILED` |
+
+These editor operations are exposed through REST and the bundled `edit.mjs` CLI, including batched operations files. They are intentionally not MCP tools: the edit token is a collaborator credential, while the Drophere MCP server is authenticated as the artifact owner. This keeps artifact-owner authority separate from delegated editor authority.
 
 ### Version History
 
@@ -711,7 +875,7 @@ Lists immutable version snapshots with deploy attribution. This is owner-readabl
 curl -X PUT "https://drophere.cc/api/v1/artifact/abc123" \
   -H "X-Drophere-Edit-Token: deg_secret_returned_once" \
   -H "Content-Type: application/json" \
-  -d '{"baseVersionId":"current-version-id","files":[{"path":"index.html","size":2048,"contentType":"text/html","hash":"sha256:new"}]}'
+  -d '{"baseVersionId":"current-version-id","files":[{"path":"index.html","size":2048,"contentType":"text/html","hash":"sha256:new"}],"deletePaths":[]}'
 
 curl -X POST "https://drophere.cc/api/v1/artifact/abc123/finalize" \
   -H "X-Drophere-Edit-Token: deg_secret_returned_once" \
@@ -719,7 +883,7 @@ curl -X POST "https://drophere.cc/api/v1/artifact/abc123/finalize" \
   -d '{"versionId":"returned-version-id"}'
 ```
 
-Finalize succeeds only when the pending version was created by that grant and the artifact's live `currentVersionId` still matches the pending version's `baseVersionId`.
+For edit-token updates, supplied files replace or add only those paths; omitted files carry forward automatically. File deletion requires explicit `deletePaths`. `manifestMode: "replace"` is the opt-in full-manifest replacement mode. Finalize succeeds only when the pending version was created by that grant and the artifact's live `currentVersionId` still matches the pending version's `baseVersionId`.
 
 ### HTML Quick Edit (Private Beta)
 

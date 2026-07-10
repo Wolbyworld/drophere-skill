@@ -31,6 +31,11 @@ if [ ! -f "$DROPHERE_DIR/skills/drophere/scripts/publish.mjs" ] && [ ! -f "$DROP
   chmod +x ~/.claude/skills/drophere/scripts/publish.sh
   DROPHERE_DIR="$HOME/.claude/skills/drophere"
 fi
+
+if [ ! -f "$DROPHERE_DIR/skills/drophere/scripts/edit.mjs" ] && [ ! -f "$DROPHERE_DIR/scripts/edit.mjs" ]; then
+  mkdir -p ~/.claude/skills/drophere/scripts
+  curl -fsSL https://raw.githubusercontent.com/Wolbyworld/drophere-skill/main/skills/drophere/scripts/edit.mjs -o ~/.claude/skills/drophere/scripts/edit.mjs
+fi
 ```
 
 For all commands below, use `PUBLISH` as shorthand:
@@ -177,16 +182,39 @@ If the user's content appears internal, sensitive, or intended for a specific au
 
 ## Edit Grants
 
-Artifact owners can create deploy-only edit grants for collaborators or other agents. Use MCP tools first when available:
+Artifact owners can create two kinds of artifact-scoped grants for collaborators or other agents. Use MCP tools first when available:
+
+- `deploy` (default) — write-only publishing from a complete local source tree
+- `editor` — deploy plus scoped manifest, raw-source, and comment reads
 
 - `drophere_create_edit_grant` — create a revocable artifact-scoped deploy token
 - `drophere_list_edit_grants` — list grant metadata; token values are never returned
 - `drophere_revoke_edit_grant` — revoke a grant
 - `drophere_list_artifact_versions` — inspect immutable version history and deploy attribution
 
-The raw token is returned only once. It can publish new versions for that artifact through the REST update/finalize flow with `X-Drophere-Edit-Token`, but it cannot delete, rollback, change access/passwords, manage comments, manage variables, duplicate artifacts, route handles/domains, or create/revoke grants.
+The raw token is returned only once. It can publish new versions for that artifact through the REST update/finalize flow with `X-Drophere-Edit-Token`, but it cannot delete the artifact, rollback, change access/passwords, mutate comments, manage variables, duplicate artifacts, route handles/domains, or create/revoke grants.
 
-When publishing with an edit grant, pass `baseVersionId` to `PUT /api/v1/artifact/:slug`. If the live version changed since that base, Drophere returns `409`; fetch the current manifest and create a new update instead of overwriting.
+Edit-token `PUT` updates are merge-safe: supplied files replace or add only those paths, omitted files carry forward, and deletion requires `deletePaths`. Always pass the real `baseVersionId`; Drophere returns `409` if the live version changed.
+
+For token-only editing, use the bundled helper and keep the token in the environment:
+
+```bash
+EDIT="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/drophere/scripts/edit.mjs}"
+EDIT="${EDIT:-$HOME/.claude/skills/drophere/scripts/edit.mjs}"
+export DROPHERE_EDIT_TOKEN='deg_...'
+export DROPHERE_ARTIFACT_SLUG='artifact-slug'
+
+node "$EDIT" comments --status open --limit 20 --message-limit 20
+node "$EDIT" search --path index.html --query 'Current heading'
+node "$EDIT" read --path index.html --start-line 40 --end-line 70
+node "$EDIT" replace --base-version-id VERSION_FROM_SEARCH_OR_READ --path index.html --expected 'Current heading' --replacement 'New heading' --summary 'Address heading feedback'
+node "$EDIT" apply --base-version-id VERSION_FROM_SEARCH_OR_READ --operations-file ./operations.json --summary 'Address review batch'
+node "$EDIT" finalize --version-id VERSION_FROM_REPLACE
+```
+
+Prefer bounded search/read plus exact replacement. Carry the `currentVersionId` returned by search/read into `--base-version-id`; never fetch a fresh base immediately before writing because that would bypass stale-inspection protection. Use `apply` to submit up to 20 exact operations in one pending version. Use the raw source endpoint only as an escape hatch. Never crawl the live artifact to reconstruct its manifest, and never treat served HTML as source because collaboration enhancements are injected at serve time.
+
+Editor-token search, read, edit, comment, and finalize operations are REST/CLI-only. The owner-authenticated MCP server manages grants but does not accept delegated edit tokens, keeping owner and collaborator authority separate.
 
 ## HTML Quick Edit (Private Beta)
 

@@ -96,6 +96,7 @@ download "$BASE_URL/skills/drophere/SKILL.md"              "$SKILL_DIR/SKILL.md"
 download "$BASE_URL/skills/drophere/scripts/publish.mjs"   "$SKILL_DIR/scripts/publish.mjs"
 download "$BASE_URL/skills/drophere/scripts/publish.sh"    "$SKILL_DIR/scripts/publish.sh"
 download "$BASE_URL/skills/drophere/scripts/auth.mjs"      "$SKILL_DIR/scripts/auth.mjs"
+download "$BASE_URL/skills/drophere/scripts/edit.mjs"      "$SKILL_DIR/scripts/edit.mjs"
 download "$BASE_URL/skills/drophere/references/API.md"     "$SKILL_DIR/references/API.md"
 
 # Make shim executable (publish.mjs doesn't need chmod)
