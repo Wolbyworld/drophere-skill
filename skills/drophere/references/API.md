@@ -86,6 +86,37 @@ The `apiKey` is permanent — store it securely and use it as a Bearer token for
 | 400 | Invalid email address |
 | 401 | Invalid or expired code |
 
+### Refresh Browser Session
+
+Convert an existing Bearer-authenticated account session into the host-wide,
+HttpOnly browser session used by owner-only controls on artifact subdomains.
+The `/account` page calls this automatically; users do not need to sign out or
+enter another email code.
+
+```
+POST /api/auth/browser/session
+```
+
+**Auth:** Required
+
+**Headers:** `Origin` must exactly match `https://drophere.cc`.
+
+**Response (200):**
+```json
+{ "success": true }
+```
+
+The response refreshes the `dh_account` cookie for `.drophere.cc`. The cookie is
+`HttpOnly`, `Secure`, and is not returned in the JSON body. The API key is never
+placed in a URL or returned by this endpoint. Newly minted browser sessions are
+bound to the current API key and stop authenticating when that key is rotated.
+
+**Errors:**
+| Status | Error |
+|--------|-------|
+| 401 | Missing or invalid API key |
+| 403 | Invalid origin |
+
 ### Rotate API Key
 
 If your key leaks, atomically swap it.
