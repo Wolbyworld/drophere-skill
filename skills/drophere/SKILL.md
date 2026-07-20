@@ -96,6 +96,8 @@ URL intent rule: if the user asks for `https://name.drophere.cc/`, `name.dropher
 
 Vanity artifact URLs are available to paid accounts through the optional `slug` field on `drophere_publish_artifact`, `drophere_create_static_site`, and `drophere_create_artifact`. Custom slugs require persistent artifacts; do not pass `ttlSeconds` with `slug`. On a `409` slug conflict, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
+Generated slugs support an optional `lang` field (`en` default, `es`) on `drophere_create_artifact`, `drophere_publish_artifact`, and `drophere_create_static_site`. When the user's conversation is in Spanish, pass `lang: "es"` so the slug is easy to share aloud (e.g. `pulpo-bailarin.drophere.cc`). `lang` is always validated but has no effect when a custom `slug` is provided.
+
 Handle URLs and vanity artifact URLs both use `{name}.drophere.cc`, but they are different products. A handle is one account namespace for routing paths like `acme.drophere.cc/gallery`; a vanity artifact slug is a direct root URL for one artifact like `client-demo.drophere.cc/`. Do not claim or rename a handle when the user asks for a vanity artifact URL. Names are exclusive across handles, artifact slugs, and retained vanity reservations.
 
 For a bad pending version, update with corrected files or discard the pending version instead of deleting the whole artifact unless the user wants it removed.

@@ -452,6 +452,7 @@ POST /api/v1/artifact
 | `files[].hash` | `string` | No | SHA-256 hash for incremental deploys |
 | `ttlSeconds` | `number` | No | Expiry for authenticated users. Anonymous always = 24h |
 | `slug` | `string` | No | Paid vanity artifact URL slug. Authenticated persistent artifacts only. Lowercase letters, numbers, and hyphens, 2-63 chars; no leading/trailing hyphen. |
+| `lang` | `string` | No | Language for generated slug words: `en` (default) or `es`. Always validated (invalid values return `400 INVALID_LANG`) but has no effect when `slug` is provided |
 | `viewer` | `ViewerMetadata` | No | Optional `title`, `description`, `ogImagePath`, `spaMode`, `markdownDownload` |
 | `source` | `string` | No | Client/source label, max 100 chars. Also accepted via `x-drophere-client` header. |
 
@@ -461,17 +462,19 @@ All `viewer` fields are optional. Defaults: `title`/`description` omitted, `ogIm
 
 **Vanity artifact URLs:** Paid Unlimited and Unlimited Pro accounts may pass `slug` at creation time to publish at `https://{slug}.drophere.cc/`. Custom slugs require authenticated persistent artifacts; do not combine `slug` with `ttlSeconds`. Slugs must be lowercase DNS labels: `a-z`, `0-9`, hyphen, 2-63 chars, no leading/trailing hyphen. Reserved platform names such as `admin`, `api`, `www`, `docs`, `app`, `login`, `status`, and `support` are blocked. On `409` with `code: "CUSTOM_SLUG_UNAVAILABLE"`, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
+**Generated slugs:** are two words, e.g. `pure-haze` (`lang: "en"`) or `pulpo-bailarin` (`lang: "es"`). A numeric suffix (`pulpo-bailarin-7`) is appended only when the bare pair is taken, growing one digit per retry.
+
 **Response (201):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "versionId": "550e8400-e29b-41d4-a716-446655440000",
-  "siteUrl": "https://abc123.drophere.cc/",
+  "siteUrl": "https://bold-canvas.drophere.cc/",
   "uploads": [
     {
       "path": "index.html",
       "method": "PUT",
-      "url": "https://drophere.cc/api/v1/upload/abc123/550e8400-.../index.html",
+      "url": "https://drophere.cc/api/v1/upload/bold-canvas/550e8400-.../index.html",
       "headers": { "Content-Type": "text/html" }
     }
   ],
@@ -490,6 +493,7 @@ REST create/update responses use `uploads` for direct HTTP `PUT`s. MCP create/up
 |--------|------|---------|
 | 400 | `CUSTOM_SLUG_INVALID` | `slug` is not a valid lowercase DNS label or is reserved |
 | 400 | `CUSTOM_SLUG_REQUIRES_PERSISTENT_ARTIFACT` | `slug` was combined with `ttlSeconds`; vanity slugs are persistent only |
+| 400 | `INVALID_LANG` | `lang` was not one of the supported values (`en`, `es`) |
 | 402 | `ACCOUNT_REQUIRED` | A signed-in account is required before claiming a vanity artifact slug |
 | 402 | `PLAN_REQUIRED` | The signed-in account does not have `custom_artifact_slugs` |
 | 409 | `CUSTOM_SLUG_UNAVAILABLE` | The slug is already used by an artifact, retained reservation, or handle |
@@ -574,14 +578,14 @@ PUT /api/v1/artifact/:slug
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "versionId": "660e8400-...",
-  "siteUrl": "https://abc123.drophere.cc/",
+  "siteUrl": "https://bold-canvas.drophere.cc/",
   "uploads": [
     {
       "path": "index.html",
       "method": "PUT",
-      "url": "https://drophere.cc/api/v1/upload/abc123/660e8400-.../index.html",
+      "url": "https://drophere.cc/api/v1/upload/bold-canvas/660e8400-.../index.html",
       "headers": { "Content-Type": "text/html" }
     }
   ],
@@ -626,9 +630,9 @@ POST /api/v1/artifact/:slug/finalize
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "versionId": "550e8400-...",
-  "siteUrl": "https://abc123.drophere.cc/"
+  "siteUrl": "https://bold-canvas.drophere.cc/"
 }
 ```
 
@@ -671,7 +675,7 @@ POST /api/v1/artifact/:slug/edit-grants
 {
   "grant": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "slug": "abc123",
+    "slug": "bold-canvas",
     "name": "builder agent",
     "kind": "editor",
     "scopes": ["deploy", "manifest:read", "source:read", "comments:read"],
@@ -719,7 +723,7 @@ All active deploy grants receive `currentVersionId`, `fileCount`, and capability
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "currentVersionId": "version-id",
   "fileCount": 2,
   "capabilities": {
@@ -756,7 +760,7 @@ The source route streams the stored R2 object before collaboration or Markdown t
 **Line-range response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "currentVersionId": "version-id",
   "path": "index.html",
   "startLine": 40,
@@ -771,7 +775,7 @@ Raw responses include `Content-Type`, `Content-Length`, `ETag`, `Cache-Control: 
 **Search response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "currentVersionId": "version-id",
   "query": "heading",
   "matches": [
@@ -828,7 +832,7 @@ Only one pending version may exist at a time. The request must use the `currentV
 **Response (201):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "versionId": "pending-version-id",
   "baseVersionId": "current-version-id",
   "readyToFinalize": true,
@@ -842,7 +846,7 @@ Only one pending version may exist at a time. The request must use the `currentV
     }
   ],
   "copiedFileCount": 11,
-  "siteUrl": "https://abc123.drophere.cc/"
+  "siteUrl": "https://bold-canvas.drophere.cc/"
 }
 ```
 
@@ -879,7 +883,7 @@ Lists immutable version snapshots with deploy attribution. This is owner-readabl
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "currentVersionId": "current-version-id",
   "pendingVersionId": null,
   "versions": [
@@ -903,12 +907,12 @@ Lists immutable version snapshots with deploy attribution. This is owner-readabl
 #### Publish With Edit Grant
 
 ```bash
-curl -X PUT "https://drophere.cc/api/v1/artifact/abc123" \
+curl -X PUT "https://drophere.cc/api/v1/artifact/bold-canvas" \
   -H "X-Drophere-Edit-Token: deg_secret_returned_once" \
   -H "Content-Type: application/json" \
   -d '{"baseVersionId":"current-version-id","files":[{"path":"index.html","size":2048,"contentType":"text/html","hash":"sha256:new"}],"deletePaths":[]}'
 
-curl -X POST "https://drophere.cc/api/v1/artifact/abc123/finalize" \
+curl -X POST "https://drophere.cc/api/v1/artifact/bold-canvas/finalize" \
   -H "X-Drophere-Edit-Token: deg_secret_returned_once" \
   -H "Content-Type: application/json" \
   -d '{"versionId":"returned-version-id"}'
@@ -966,7 +970,7 @@ Path indices are zero-based among same-tag element siblings. `textIndex` is zero
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "filePath": "index.html",
   "baseVersionId": "current-version-id",
   "supported": true,
@@ -988,10 +992,10 @@ Uses the same body as preview, with optional `summary`. Publishing rechecks feat
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "versionId": "new-version-id",
   "baseVersionId": "current-version-id",
-  "siteUrl": "https://abc123.drophere.cc/",
+  "siteUrl": "https://bold-canvas.drophere.cc/",
   "summary": "Quick edit: update visible text"
 }
 ```
@@ -1035,8 +1039,8 @@ POST /api/v1/artifact/:slug/claim
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
-  "siteUrl": "https://abc123.drophere.cc/",
+  "slug": "bold-canvas",
+  "siteUrl": "https://bold-canvas.drophere.cc/",
   "message": "Artifact claimed successfully"
 }
 ```
@@ -1067,7 +1071,7 @@ PATCH /api/v1/artifact/:slug/metadata
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "viewerMetadata": { "title": "Updated Title", "description": "New description" },
   "note": "Viewer metadata updated successfully."
 }
@@ -1090,7 +1094,7 @@ GET /api/v1/artifact/:slug/tags
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "tags": [
     { "tag": "strategy", "source": "agent", "confidence": 0.82, "createdAt": "2026-03-13T10:00:00Z", "updatedAt": "2026-03-13T10:00:00Z" }
   ],
@@ -1120,7 +1124,7 @@ PATCH /api/v1/artifact/:slug/tags
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "tags": [
     { "tag": "q1-plan", "source": "agent", "confidence": 0.82, "createdAt": "2026-03-13T10:00:00Z", "updatedAt": "2026-03-13T10:00:00Z" },
     { "tag": "strategy", "source": "agent", "confidence": 0.82, "createdAt": "2026-03-13T10:00:00Z", "updatedAt": "2026-03-13T10:00:00Z" }
@@ -1161,8 +1165,8 @@ GET /api/v1/artifact/:slug
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
-  "siteUrl": "https://abc123.drophere.cc/",
+  "slug": "bold-canvas",
+  "siteUrl": "https://bold-canvas.drophere.cc/",
   "status": "active",
   "currentVersionId": "550e8400-...",
   "pendingVersionId": null,
@@ -1200,8 +1204,8 @@ GET /api/v1/artifacts
 {
   "artifacts": [
     {
-      "slug": "abc123",
-      "siteUrl": "https://abc123.drophere.cc/",
+      "slug": "bold-canvas",
+      "siteUrl": "https://bold-canvas.drophere.cc/",
       "status": "active",
       "currentVersionId": "550e8400-...",
       "pendingVersionId": null,
@@ -1246,11 +1250,11 @@ GET /api/v1/library/items
 {
   "items": [
     {
-      "artifactSlug": "abc123",
-      "artifactUrl": "https://abc123.drophere.cc/",
+      "artifactSlug": "bold-canvas",
+      "artifactUrl": "https://bold-canvas.drophere.cc/",
       "preferredUrl": "https://alice.drophere.cc/docs",
       "routes": [
-        { "namespaceType": "handle", "namespace": "alice", "location": "docs", "slug": "abc123", "url": "https://alice.drophere.cc/docs" }
+        { "namespaceType": "handle", "namespace": "alice", "location": "docs", "slug": "bold-canvas", "url": "https://alice.drophere.cc/docs" }
       ],
       "title": "Launch docs",
       "summary": "Customer-facing launch notes",
@@ -1298,7 +1302,7 @@ DELETE /api/v1/artifact/:slug
 
 **Response (200):**
 ```json
-{ "slug": "abc123", "message": "Artifact deleted" }
+{ "slug": "bold-canvas", "message": "Artifact deleted" }
 ```
 
 ### Set or Remove Password
@@ -1317,7 +1321,7 @@ PATCH /api/v1/artifact/:slug/password
 
 **Response (200):**
 ```json
-{ "slug": "abc123", "passwordProtected": true }
+{ "slug": "bold-canvas", "passwordProtected": true }
 ```
 
 **Errors:**
@@ -1346,7 +1350,7 @@ Does NOT copy: password, access control settings, TTL, domain links, claim token
 ```json
 {
   "slug": "calm-reef-x9z1",
-  "sourceSlug": "bold-canvas-a7k2",
+  "sourceSlug": "bold-canvas",
   "versionId": "550e8400-e29b-41d4-a716-446655440000",
   "siteUrl": "https://calm-reef-x9z1.drophere.cc/",
   "files": 12
@@ -1379,7 +1383,7 @@ Re-issues upload URLs for a pending version. Only returns URLs for files not yet
 **Response (200):**
 ```json
 {
-  "slug": "bold-canvas-a7k2",
+  "slug": "bold-canvas",
   "versionId": "550e8400-e29b-41d4-a716-446655440000",
   "uploads": [
     { "path": "app.js", "method": "PUT", "url": "https://...", "headers": { "Content-Type": "application/javascript" } }
@@ -1565,7 +1569,7 @@ To make public again, set `visibility` to `"public"` — this clears all allowli
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "visibility": "restricted",
   "allowedEmails": ["alice@acme.com", "bob@acme.com"],
   "allowedDomains": ["acme.com"]
@@ -1593,7 +1597,7 @@ GET /api/v1/artifact/:slug/access
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "visibility": "restricted",
   "allowedEmails": ["alice@acme.com"],
   "allowedDomains": ["acme.com"]
@@ -1629,7 +1633,7 @@ Updates artifact view access and collaboration comment settings in one row updat
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "access": {
     "visibility": "restricted",
     "allowedEmails": ["alice@acme.com"],
@@ -1695,7 +1699,7 @@ GET /api/v1/artifact/:slug/comments?status=open
 **Response (200):**
 ```json
 {
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "settings": {
     "enabled": true,
     "commentPolicy": "authenticated",
@@ -1767,7 +1771,7 @@ POST /api/v1/visitor/request-code
 
 **Body:**
 ```json
-{ "email": "alice@acme.com", "slug": "abc123" }
+{ "email": "alice@acme.com", "slug": "bold-canvas" }
 ```
 
 **Response (200):**
@@ -1794,7 +1798,7 @@ POST /api/v1/visitor/verify-code
 
 **Body:**
 ```json
-{ "email": "alice@acme.com", "code": "ABCD-EFGH", "slug": "abc123" }
+{ "email": "alice@acme.com", "code": "ABCD-EFGH", "slug": "bold-canvas" }
 ```
 
 **Response (200):**
@@ -1913,7 +1917,7 @@ GET /api/v1/handle
   "handle": "my-project",
   "hostname": "my-project.drophere.cc",
   "namespace_id": "user-uuid",
-  "links": [{ "location": "docs", "slug": "abc123" }]
+  "links": [{ "location": "docs", "slug": "bold-canvas" }]
 }
 ```
 
@@ -1969,7 +1973,7 @@ POST /api/v1/links
 ```json
 {
   "location": "docs",
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "domain": "example.com"
 }
 ```
@@ -1982,7 +1986,7 @@ POST /api/v1/links
 
 **Response (201):**
 ```json
-{ "namespace": "my-project", "location": "docs", "slug": "abc123" }
+{ "namespace": "my-project", "location": "docs", "slug": "bold-canvas" }
 ```
 
 **Root link recipe:** to serve an artifact at the bare handle URL, create a link with `location: ""`:
@@ -1991,7 +1995,7 @@ POST /api/v1/links
 curl -X POST https://drophere.cc/api/v1/links \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{ "location": "", "slug": "abc123" }'
+  -d '{ "location": "", "slug": "bold-canvas" }'
 ```
 
 That makes `https://my-project.drophere.cc/` resolve to the artifact. Add a second link such as `location: "docs"` only when you also want `https://my-project.drophere.cc/docs`.
@@ -2008,8 +2012,8 @@ GET /api/v1/links
 ```json
 {
   "links": [
-    { "location": "", "slug": "abc123", "namespace": "my-project", "namespaceType": "handle" },
-    { "location": "docs", "slug": "abc123", "namespace": "my-project", "namespaceType": "handle" }
+    { "location": "", "slug": "bold-canvas", "namespace": "my-project", "namespaceType": "handle" },
+    { "location": "docs", "slug": "bold-canvas", "namespace": "my-project", "namespaceType": "handle" }
   ]
 }
 ```
@@ -2027,7 +2031,7 @@ GET /api/v1/link?location=docs
 
 **Response (200):**
 ```json
-{ "location": "docs", "slug": "abc123" }
+{ "location": "docs", "slug": "bold-canvas" }
 ```
 
 ### Update Link
@@ -2115,7 +2119,7 @@ GET /api/v1/domains
       "status": "active",
       "ssl_status": "active",
       "created_at": "2026-03-11T10:00:00.000Z",
-      "links": [{ "location": "docs", "slug": "abc123" }]
+      "links": [{ "location": "docs", "slug": "bold-canvas" }]
     }
   ]
 }
@@ -2170,7 +2174,7 @@ POST /api/v1/feedback
 ```json
 {
   "message": "upload URL expired before upload finished",
-  "slug": "abc123",
+  "slug": "bold-canvas",
   "source": "skill"
 }
 ```
@@ -2450,8 +2454,8 @@ Enable later:
 When enabled, append `?format=md` to any artifact HTML path:
 
 ```
-GET https://abc123.drophere.cc/?format=md
-GET https://abc123.drophere.cc/docs/guide.html?format=md
+GET https://bold-canvas.drophere.cc/?format=md
+GET https://bold-canvas.drophere.cc/docs/guide.html?format=md
 ```
 
 Markdown sources (`.md`, `.markdown`, or `text/markdown`) are served verbatim with attachment headers. HTML sources are converted best-effort.
