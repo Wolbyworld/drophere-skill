@@ -462,7 +462,7 @@ All `viewer` fields are optional. Defaults: `title`/`description` omitted, `ogIm
 
 **Vanity artifact URLs:** Paid Unlimited and Unlimited Pro accounts may pass `slug` at creation time to publish at `https://{slug}.drophere.cc/`. Custom slugs require authenticated persistent artifacts; do not combine `slug` with `ttlSeconds`. Slugs must be lowercase DNS labels: `a-z`, `0-9`, hyphen, 2-63 chars, no leading/trailing hyphen. Reserved platform names such as `admin`, `api`, `www`, `docs`, `app`, `login`, `status`, and `support` are blocked. On `409` with `code: "CUSTOM_SLUG_UNAVAILABLE"`, ask the user for a different slug; do not invent one unless the user requested suggestions.
 
-**Generated slugs:** are two words, e.g. `pure-haze` (`lang: "en"`) or `pulpo-bailarin` (`lang: "es"`). A numeric suffix (`pulpo-bailarin-7`) is appended only when the bare pair is taken, growing one digit per retry.
+**Generated slugs:** are two words, e.g. `pure-haze` (`lang: "en"`) or `pulpo-bailarin` (`lang: "es"`). After a generated candidate collides, the next retry samples a fresh word pair and adds a numeric suffix (`pulpo-bailarin-7`), growing it by one digit per retry.
 
 **Response (201):**
 ```json
@@ -1349,10 +1349,10 @@ Does NOT copy: password, access control settings, TTL, domain links, claim token
 **Response (201):**
 ```json
 {
-  "slug": "calm-reef-x9z1",
+  "slug": "calm-reef",
   "sourceSlug": "bold-canvas",
   "versionId": "550e8400-e29b-41d4-a716-446655440000",
-  "siteUrl": "https://calm-reef-x9z1.drophere.cc/",
+  "siteUrl": "https://calm-reef.drophere.cc/",
   "files": 12
 }
 ```
