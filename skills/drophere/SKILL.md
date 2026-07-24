@@ -86,7 +86,9 @@ Use MCP tools first when they are available. For small static/text artifacts, pr
 
 Use `drophere_create_artifact` or `drophere_update_artifact` when you need large files, binary files, or incremental deploy control. Their responses separate `mcpUploads` (call `drophere_upload_file` with `contentText` for text or `contentBase64` for bytes) from `directHttpUploads` (raw HTTP `PUT` fallback), and include `shareable`, `siteUrlStatus`, `operationState`, `nextRecommendedAction`, `nextActions`, and cleanup hints for pending versions.
 
-Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-file upload status. Use `drophere_list_files` and `drophere_get_file` after publishing to verify the deployed files. Publish uploaded pending versions with `drophere_publish_uploaded_version`; `drophere_finalize_artifact` remains available as the compatibility name.
+Pass an explicit `client_request_id` on create and update mutations when a request may be retried. Drophere commits that key with the artifact or version in PostgreSQL, so the same key and request body recover the committed result even when the short-lived KV retry cache is unavailable.
+
+Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-file upload status. Use `drophere_list_files` and `drophere_get_file` after publishing to verify the deployed files. Publish uploaded pending versions with `drophere_publish_uploaded_version`; `drophere_finalize_artifact` remains available as the compatibility name. When an owner wants review before release, use `drophere_save_uploaded_version`, inspect the returned saved state/version history, then use `drophere_deploy_saved_version` with the observed `expectedCurrentVersionId`. Deploying an older saved version performs rollback.
 
 Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 
@@ -192,7 +194,7 @@ Artifact owners can create two kinds of artifact-scoped grants for collaborators
 - `drophere_create_edit_grant` — create a revocable artifact-scoped deploy token
 - `drophere_list_edit_grants` — list grant metadata; token values are never returned
 - `drophere_revoke_edit_grant` — revoke a grant
-- `drophere_list_artifact_versions` — inspect immutable version history and deploy attribution
+- `drophere_list_artifact_versions` — inspect version lifecycle history and deploy attribution
 
 The raw token is returned only once. It can publish new versions for that artifact through the REST update/finalize flow with `X-Drophere-Edit-Token`, but it cannot delete the artifact, rollback, change access/passwords, mutate comments, manage variables, duplicate artifacts, route handles/domains, or create/revoke grants.
 
@@ -374,7 +376,7 @@ Options:
 1. **Scan** — Hashes all files with SHA-256
 2. **Create/Update** — Sends file manifest to the API, receives upload URLs
 3. **Upload** — PUTs each file to its upload URL (skips unchanged files)
-4. **Finalize** — Marks the version as live
+4. **Finalize** — Saves and publishes by default; owner workflows may save first and deploy later
 
 State is saved to `.drophere/state.json` in the working directory. Re-running `publish.mjs` in the same directory automatically does an incremental deploy (only uploads changed files).
 
@@ -439,6 +441,24 @@ That makes `https://your-handle.drophere.cc/` serve the artifact. To serve the s
 ```
 
 REST uses the same body shape with `POST /api/v1/links`. `__root__` is only a compatibility alias for root and is stored/returned as `""`; prefer `location: ""` when creating or setting links. Use `GET/PATCH/DELETE /api/v1/links/__root__` only when the root location has to appear in the URL path.
+
+### Route an artifact under a custom domain
+
+For an external hostname the user owns, use the custom-domain MCP tools rather
+than asking them to call REST manually:
+
+1. Call `drophere_register_domain` with the hostname.
+2. Give the user the returned DNS and certificate-validation instructions.
+3. Call `drophere_refresh_domain` after DNS changes until `serving_ready` is
+   `true`.
+4. Call `drophere_set_link` with `domain`, `location`, and `slug` to route the
+   root or a path.
+
+Use `drophere_list_domains` and `drophere_get_domain` for persisted status.
+`drophere_delete_domain` removes the verified provider hostname before local
+routing state. `drophere_detach_domain` is a destructive recovery operation
+that removes only local state and must not be used while the provider binding
+still belongs to Drophere.
 
 ## Key-Value Store
 

@@ -410,7 +410,13 @@ DELETE /api/v1/machine/artifact/:slug
 
 **Auth:** `X-Drophere-Machine-Token`
 
-Deletes the machine-owned artifact and its stored objects.
+Marks the machine-owned artifact deleted and atomically queues durable KV/R2 cleanup. Returns:
+
+```json
+{ "ok": true, "slug": "paid-demo", "storageCleanup": "pending" }
+```
+
+`storageCleanup: "pending"` means the one-minute cleanup worker will continue retrying until both stores are clear.
 
 ---
 
@@ -524,7 +530,10 @@ Upload each file to the corresponding URL returned from create, update, or refre
 PUT /api/v1/upload/:slug/:versionId/:filePath
 ```
 
-**Auth:** Capability URL. No Bearer token required; the `slug` + `versionId` + path identify a pending upload slot.
+**Auth:** Capability URL. No Bearer token required; the `slug` + `versionId` +
+path identify an upload slot only while that exact version remains the
+artifact's `pendingVersionId`. Historical `abandoned` versions cannot receive
+uploads even if their original 10-minute window has not expired.
 
 Headers:
 
@@ -540,12 +549,15 @@ Headers:
 
 The upload window is 10 minutes. If it expires before all files are uploaded, call `POST /api/v1/artifact/:slug/uploads/refresh`.
 
+Each version file is first-write-wins. A retry never replaces stored bytes: it succeeds only when the existing object's size and content type still match the manifest. A conflicting retry returns **409**; discard the pending version and create a new one.
+
 **Errors:**
 | Status | Error |
 |--------|-------|
 | 400 | Invalid version ID or empty body |
 | 403 | Upload window expired |
-| 404 | Version not found, already finalized, or file not in manifest |
+| 404 | Version not found, already finalized, no longer pending, or file not in manifest |
+| 409 | File already exists with conflicting manifest metadata |
 | 411 | Missing Content-Length |
 | 413 | Content-Length does not match declared file size |
 | 502 | Upload to storage failed |
@@ -609,9 +621,12 @@ PUT /api/v1/artifact/:slug
 | 410 | Artifact has expired |
 | 413 | File or total artifact size exceeds limit |
 
-### Finalize Artifact
+### Finalize or Save an Artifact Version
 
-Mark an upload as complete. Copies skipped files server-side, activates the version.
+Mark an upload complete and immutable. Copies skipped files server-side.
+Existing clients remain compatible: omitting `activate` saves the version and
+makes it live. Authenticated owners and edit grants may pass `activate: false`
+to save without changing the live site.
 
 ```
 POST /api/v1/artifact/:slug/finalize
@@ -623,23 +638,32 @@ POST /api/v1/artifact/:slug/finalize
 ```json
 {
   "versionId": "550e8400-e29b-41d4-a716-446655440000",
-  "claimToken": "ct_xyz789..."
+  "claimToken": "ct_xyz789...",
+  "activate": false
 }
 ```
+
+`activate` defaults to `true`. Anonymous claim-token uploads must use the
+publish-now default because deploying a previously saved version is an
+owner-only operation.
 
 **Response (200):**
 ```json
 {
   "slug": "bold-canvas",
   "versionId": "550e8400-...",
-  "siteUrl": "https://bold-canvas.drophere.cc/"
+  "siteUrl": "https://bold-canvas.drophere.cc/",
+  "state": "saved",
+  "isCurrent": false,
+  "savedAt": "2026-07-24T12:03:00.000Z",
+  "currentVersionId": "previous-live-version-id"
 }
 ```
 
 **Errors:**
 | Status | Error |
 |--------|-------|
-| 400 | versionId is required |
+| 400 | versionId is required / activate must be a boolean |
 | 401 | Authentication required |
 | 403 | Invalid or missing claim token / You do not own this artifact |
 | 404 | Artifact not found / Version not found |
@@ -878,7 +902,11 @@ GET /api/v1/artifact/:slug/versions?limit=50
 
 **Auth:** Required (artifact owner Bearer token)
 
-Lists immutable version snapshots with deploy attribution. This is owner-readable history, not rollback; restoring an old version remains an owner-only administrative action outside edit grants.
+Lists version records with deploy attribution and computed lifecycle state.
+`uploading` is only the current mutable upload selected by `pendingVersionId`,
+`saved` is immutable but not live, and `live` is the version selected by
+`currentVersionId`. An unfinalized historical record that is no longer pending
+is `abandoned`; it is terminal and cannot be finalized or discarded.
 
 **Response (200):**
 ```json
@@ -891,6 +919,8 @@ Lists immutable version snapshots with deploy attribution. This is owner-readabl
       "versionId": "current-version-id",
       "baseVersionId": "previous-version-id",
       "isFinalized": true,
+      "isCurrent": true,
+      "state": "live",
       "createdByKind": "edit_grant",
       "createdByUserId": null,
       "createdByEditGrantId": "grant-id",
@@ -898,11 +928,53 @@ Lists immutable version snapshots with deploy attribution. This is owner-readabl
       "summary": "Update homepage copy",
       "fileCount": 12,
       "createdAt": "2026-06-28T12:00:00.000Z",
-      "finalizedAt": "2026-06-28T12:03:00.000Z"
+      "finalizedAt": "2026-06-28T12:03:00.000Z",
+      "savedAt": "2026-06-28T12:03:00.000Z"
     }
   ]
 }
 ```
+
+#### Deploy or Roll Back to a Saved Version
+
+```
+POST /api/v1/artifact/:slug/versions/:versionId/deploy
+```
+
+**Auth:** Required (artifact owner Bearer token)
+
+**Body:**
+```json
+{ "expectedCurrentVersionId": "current-version-id" }
+```
+
+Use `null` when the artifact has no live version yet. The expected value is an
+optimistic-concurrency guard; a stale live pointer returns `409` without
+changing the site. The selected version must belong to the artifact and already
+be saved. Deploy is rejected while another upload is pending. Selecting an
+older saved version performs a rollback through the same operation.
+
+**Response (200):**
+```json
+{
+  "slug": "bold-canvas",
+  "versionId": "saved-version-id",
+  "state": "live",
+  "isCurrent": true,
+  "currentVersionId": "saved-version-id",
+  "previousVersionId": "current-version-id",
+  "siteUrl": "https://bold-canvas.drophere.cc/"
+}
+```
+
+**Errors:**
+| Status | Error |
+|--------|-------|
+| 400 | expectedCurrentVersionId is missing or invalid |
+| 403 | You do not own this artifact |
+| 404 | Artifact or saved version not found |
+| 409 | Pending upload exists / version is not saved / live version changed |
+| 410 | Artifact has expired |
 
 #### Publish With Edit Grant
 
@@ -1342,7 +1414,17 @@ POST /api/v1/artifact/:slug/duplicate
 
 **Auth:** Required (must own the artifact)
 
-Creates a server-side copy with a new slug. Rate limited same as artifact creation.
+Creates a server-side copy with a new slug. The destination is staged as
+non-live while every R2 object is copied with create-only semantics and its
+source size and content type are checked against the manifest. The artifact
+becomes live atomically only after all copies succeed. A failed copy returns no
+live URL and best-effort removes staged objects after deleting the guarded
+pending database artifact. With `client_request_id`, the exact staged
+destination remains retryable for up to 24 hours. After that fixed deadline and
+15 minutes without an active retry, a bounded minute reaper removes the exact
+pending artifact and durable identity, then queues durable object cleanup.
+Successful or otherwise changed destinations are never reaped. Rate limited
+same as artifact creation.
 
 Does NOT copy: password, access control settings, TTL, domain links, claim token.
 
@@ -1837,7 +1919,7 @@ Returns a compact list of API capabilities. Useful for agents to discover availa
     { "name": "vanity-artifact-urls", "summary": "Paid persistent artifacts can request a custom artifact subdomain at creation time", "endpoints": ["POST /api/v1/artifact"], "tools": ["drophere_publish_artifact", "drophere_create_static_site", "drophere_create_artifact"] },
     { "name": "collaboration", "summary": "Enable anchored comments, replies, moderation, and attachments", "endpoints": [...] },
     { "name": "artifact-tags", "summary": "Private artifact-level tags for knowledge discovery and agent search", "endpoints": [...], "tools": ["drophere_get_artifact_tags", "drophere_set_artifact_tags", "drophere_list_tags"] },
-    { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_list_files", "drophere_get_file", "drophere_list_tags", "drophere_publish_uploaded_version"] }
+    { "name": "mcp", "summary": "Model Context Protocol wrapper over the REST/API and artifact store surfaces", "endpoints": [...], "tools": ["drophere_publish_artifact", "drophere_upload_file", "drophere_list_files", "drophere_get_file", "drophere_list_tags", "drophere_publish_uploaded_version", "drophere_save_uploaded_version", "drophere_deploy_saved_version"] }
   ],
   "docsUrl": "https://drophere.cc/skill/references/API.md",
   "markdownDocsUrl": "https://drophere.cc/skill/references/API.md",
@@ -1999,6 +2081,10 @@ curl -X POST https://drophere.cc/api/v1/links \
 ```
 
 That makes `https://my-project.drophere.cc/` resolve to the artifact. Add a second link such as `location: "docs"` only when you also want `https://my-project.drophere.cc/docs`.
+For a custom-domain root, the canonical create/update and legacy `__root__`
+cleanup run in one current-registration-locked database mutation. Cleanup
+requires the canonical write to match successfully, so stale cleanup cannot
+remove a root link from a replacement registration.
 
 ### List Links
 
@@ -2073,6 +2159,12 @@ DELETE /api/v1/link?location=docs
 
 ## Domains
 
+Agents can manage the full lifecycle with `drophere_register_domain`,
+`drophere_list_domains`, `drophere_get_domain`, `drophere_refresh_domain`,
+`drophere_detach_domain`, and `drophere_delete_domain`. These tools use the
+same authenticated operations and return the same success and error fields as
+the REST endpoints below.
+
 ### Add Custom Domain
 
 ```
@@ -2091,16 +2183,52 @@ POST /api/v1/domains
 {
   "domain": "docs.example.com",
   "status": "pending",
+  "ssl_status": "pending",
+  "provider_status": "pending",
+  "provider_ssl_status": "pending_validation",
+  "provider_configured": true,
+  "serving_ready": false,
   "dns_instructions": {
     "type": "CNAME",
     "name": "docs.example.com",
     "value": "fallback.drophere.cc",
-    "note": "Add a CNAME record pointing docs.example.com to fallback.drophere.cc. If this is an apex domain, use an ALIAS record instead."
-  }
+    "note": "Point docs.example.com to fallback.drophere.cc."
+  },
+  "ownership_verification": {
+    "type": "txt",
+    "name": "_cf-custom-hostname.docs.example.com",
+    "value": "..."
+  },
+  "ssl_validation_records": [],
+  "verification_errors": [],
+  "last_error": null,
+  "last_checked_at": "2026-07-24T12:00:00.000Z"
 }
 ```
 
 Do not register `*.drophere.cc` names here. A request such as `drophelloworld.drophere.cc` returns `400` with `code: "DROPHERE_HOSTNAME_RESERVED"` and `suggestedSlug: "drophelloworld"`; create a persistent artifact with that `slug` instead.
+
+Registration calls Cloudflare for SaaS and persists the returned hostname,
+certificate, ownership, and DCV state. A local nonce is mirrored in Cloudflare
+custom metadata and must match before Drophere adopts or deletes a provider
+record. Cloudflare must enable Custom Hostname custom metadata for the account;
+if metadata is unavailable, provisioning fails without falling back to a
+hostname-only match. Provisioning uses a short database lease: concurrent live
+claims are rejected, while a crashed claim becomes safely retryable. Each claim
+has a fencing token and captures the current applied refresh generation, so an expired
+request cannot overwrite newer provisioning completion or newer verified
+provider evidence. A request timeout does not prove that Cloudflare cancelled
+the server-side create. Ambiguous outcomes remain `provisioning_uncertain`,
+retain their registration claim, and reject deletion even after the lease
+expires. A later retry claims the row first, then clears that uncertainty only
+after an exact hostname-and-nonce match is confirmed by an authoritative
+provider read.
+A domain
+does not serve until its bound provider record
+exists and both local and raw provider hostname/SSL statuses are `active`.
+Apex domains require DNS-provider CNAME
+flattening or Cloudflare's separate apex-proxying product; they are not
+universally supported by an ALIAS record.
 
 ### List Domains
 
@@ -2118,6 +2246,7 @@ GET /api/v1/domains
       "domain": "docs.example.com",
       "status": "active",
       "ssl_status": "active",
+      "serving_ready": true,
       "created_at": "2026-03-11T10:00:00.000Z",
       "links": [{ "location": "docs", "slug": "bold-canvas" }]
     }
@@ -2139,9 +2268,67 @@ GET /api/v1/domains/:domain
   "domain": "docs.example.com",
   "status": "active",
   "ssl_status": "active",
+  "serving_ready": true,
   "created_at": "2026-03-11T10:00:00.000Z"
 }
 ```
+
+### Refresh Domain Status
+
+```
+POST /api/v1/domains/:domain/refresh
+```
+
+**Auth:** Required
+
+Reads the Cloudflare custom hostname, persists the provider readback, and
+returns the same shape as Get Domain. Refresh does not rewrite cached link
+snapshots, so it cannot resurrect a concurrently deleted or retargeted link.
+When no provider hostname ID is stored, hostname search is discovery only;
+Drophere reads the discovered exact ID again and validates its current hostname
+and binding metadata before persisting it.
+Refresh takes an exclusive two-minute claim with a monotonic generation and
+captures the registration's immutable namespace ID and binding nonce.
+Concurrent refresh and deletion attempts return
+`409 CUSTOM_DOMAIN_OPERATION_IN_PROGRESS`. Every success, terminal failure,
+and transient-error writeback requires the exact refresh token and rejects a
+domain already claimed for deletion. An expired refresh response therefore
+cannot overwrite deletion state or a same-owner replacement registration.
+Pending, unbound, or failed state is fail-closed and removes stale routing KV.
+Provider or configuration failures return `502` or `503` with a stable error
+code and remain visible in later authenticated reads.
+Refresh returns `409 CUSTOM_DOMAIN_OPERATION_IN_PROGRESS` without contacting
+Cloudflare while a provisioning token exists or the row is
+`provisioning_uncertain`. Only `POST /api/v1/domains` can claim and reconcile
+an uncertain create after its lease expires.
+
+### Detach Local Domain Registration
+
+```
+POST /api/v1/domains/:domain/detach
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "local_only": true,
+  "provider_untouched": true
+}
+```
+
+This recovery operation removes the domain registration, its local links, and
+routing cache without creating, updating, or deleting any Cloudflare record.
+It is available for a failed foreign binding, for authoritative absence, and
+for an uncertain create only after its provisioning lease expires. When the
+provider record is discovered by hostname, Drophere performs an authoritative
+read of that exact record before detaching. A live provisioning or refresh
+claim returns `409 CUSTOM_DOMAIN_OPERATION_IN_PROGRESS`. If the provider record
+still has this registration's exact hostname and binding nonce, detach returns
+`409 CUSTOM_DOMAIN_PROVIDER_BINDING_MATCHES`; use normal deletion so provider
+cleanup happens first. Provider errors leave local state intact for retry.
 
 ### Delete Domain
 
@@ -2155,6 +2342,29 @@ DELETE /api/v1/domains/:domain
 ```json
 { "success": true }
 ```
+
+Drophere removes the custom hostname and its certificates at Cloudflare before
+deleting local links, database state, and KV. If provider deletion fails, local
+ownership and routing state remain available for a safe retry. Provider metadata
+must prove the record is bound to the local registration before deletion.
+When the row has no stored provider hostname ID, hostname search is discovery
+only: Drophere reads the discovered exact ID again and revalidates its current
+hostname and binding metadata before sending the delete request.
+If that binding no longer matches, Drophere marks the local domain failed and
+purges routing KV without deleting the foreign provider record.
+Deletion claims block new domain-link writes and provider refreshes while the
+provider call is in progress. A live refresh claim blocks deletion. After
+provider deletion, local links and the domain row are removed atomically,
+preventing orphan routes from reappearing after re-registration.
+Deletion returns `409 CUSTOM_DOMAIN_OPERATION_IN_PROGRESS` while a live
+provisioning lease exists or while a create outcome remains
+`provisioning_uncertain`. Provider request timeouts do not imply server-side
+cancellation. After the lease expires, retry provisioning to reconcile the
+exact hostname-and-nonce binding; deletion becomes available only after that
+uncertainty is cleared.
+Domain routing cache is bound to the registration's immutable namespace ID and
+provider nonce; legacy or mismatched snapshots fail closed and are invalidated.
+Repeated deletes succeed; KV cleanup after the database deletion is best effort.
 
 ---
 
@@ -2212,6 +2422,8 @@ Slack-hosted artifacts are anonymous. By default they are restricted to the work
 ## Key-Value Store
 
 Per-artifact key-value storage, accessible from the artifact's own origin. No authentication required — designed for public read/write from hosted apps (e.g., game leaderboards).
+
+Store data belongs to the artifact itself, not its reusable slug. Deleting an artifact and later creating another with the same slug does not transfer the deleted artifact's keys. Artifacts created before this isolation was introduced retain access to their existing keys.
 
 All endpoints served from the artifact's subdomain: `{slug}.drophere.cc/_api/store/`. Also works via handles and custom domains.
 
@@ -2347,14 +2559,16 @@ For small static/text artifacts, prefer `drophere_publish_artifact`. It accepts 
 
 Use `drophere_create_artifact` / `drophere_update_artifact` for large files, binary files, or incremental deploys. Their responses distinguish:
 
+Pass an explicit `client_request_id` on create and update mutations when a request may be retried. Drophere commits that key with the artifact or version in PostgreSQL, so the same key and request body recover the committed result even when the short-lived KV retry cache is unavailable.
+
 - `mcpUploads` — call `drophere_upload_file` with the listed args. Use `contentText` for text files or `contentBase64` for exact bytes.
 - `directHttpUploads` — direct HTTP `PUT` fallback for clients that can upload raw bytes.
 - `nextStep` — concise instruction for the client path to follow.
 - `siteUrlStatus: "pending_until_finalize"` and `doNotShareUntilFinalized: true` — the returned URL is reserved but not live until publish/finalize succeeds.
 - `shareable` — the simplest readiness signal for whether the URL can be returned to the user.
-- `operationState` — `pending_upload`, `ready_to_finalize`, or `active`.
+- `operationState` — `pending_upload`, `ready_to_finalize`, `saved`, or `active`.
 - `nextRecommendedAction` / `nextActions` — tool names and args for the next safe MCP step.
-- `cleanup` — a `drophere_discard_pending_version` recipe for abandoned bad manifests.
+- `cleanup` — a `drophere_discard_pending_version` recipe for unwanted pending manifests. Pass both the artifact `slug` and the exact pending `versionId` from the read/create response; stale version IDs are rejected and cannot discard a newer upload.
 
 Call `drophere_get_artifact` to inspect a pending version before publishing. Its `pendingVersion.files[]` entries include `manifestBytes`, `uploadedBytes`, `uploaded`, `sizeMatches`, and `ready`; `pendingVersion.readyToFinalize` flips true when the version can be published.
 
@@ -2362,9 +2576,14 @@ After publishing, use `drophere_list_files` to inspect the live manifest and `dr
 
 Status fields are intentionally distinct: `status` is the artifact row lifecycle, `operationState` is the MCP workflow state, and `siteUrlStatus` is public serving readiness.
 
-After uploading every required file, call `drophere_publish_uploaded_version`. `drophere_finalize_artifact` remains available as the compatibility name.
+After uploading every required file, call `drophere_publish_uploaded_version`.
+`drophere_finalize_artifact` remains available as the compatibility name. For a
+review-first release, call `drophere_save_uploaded_version`, inspect version
+history, then call `drophere_deploy_saved_version` with the observed
+`expectedCurrentVersionId`. The same deploy tool rolls back to older saved
+versions.
 
-For a bad pending version, update with a corrected manifest or discard the pending version instead of deleting the whole artifact unless removal is intended.
+For a bad pending version, update with a corrected manifest or call `drophere_discard_pending_version` with the exact observed `slug` and pending `versionId`. A stale version ID is rejected. If the artifact has saved versions but no live version, discard preserves those saved versions and removes only the expected pending upload. Delete the whole artifact only when removal is intended.
 
 ### MCP Tools
 
@@ -2372,13 +2591,14 @@ For a bad pending version, update with a corrected manifest or discard the pendi
 |------|-------|
 | Search/read | `drophere_search`, `drophere_fetch`, `drophere_list_artifacts`, `drophere_get_artifact`, `drophere_list_artifact_versions`, `drophere_list_files`, `drophere_get_file`, `drophere_get_artifact_access` |
 | Library | `drophere_list_library_items`, `drophere_update_library_item`, `drophere_create_library_collection`, `drophere_list_library_collections`, `drophere_add_library_item_to_collection`, `drophere_suggest_library_routes`, `drophere_find_related_library_items` |
-| Artifact write | `drophere_publish_artifact`, `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_publish_uploaded_version`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
+| Artifact write | `drophere_publish_artifact`, `drophere_create_static_site`, `drophere_create_artifact`, `drophere_update_artifact`, `drophere_publish_uploaded_version`, `drophere_save_uploaded_version`, `drophere_deploy_saved_version`, `drophere_finalize_artifact`, `drophere_claim_artifact`, `drophere_duplicate_artifact`, `drophere_refresh_uploads`, `drophere_update_artifact_metadata`, `drophere_discard_pending_version`, `drophere_delete_artifact` |
 | Tags | `drophere_get_artifact_tags`, `drophere_set_artifact_tags`, `drophere_list_tags` |
 | Edit grants | `drophere_create_edit_grant`, `drophere_list_edit_grants`, `drophere_revoke_edit_grant` |
 | Upload | `drophere_upload_file` |
 | Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
 | Collaboration | `drophere_set_collaboration`, `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment` |
 | Handles/links | `drophere_set_handle`, `drophere_get_handle`, `drophere_delete_handle`, `drophere_set_link`, `drophere_get_link`, `drophere_list_links`, `drophere_delete_link` |
+| Custom domains | `drophere_register_domain`, `drophere_list_domains`, `drophere_get_domain`, `drophere_refresh_domain`, `drophere_detach_domain`, `drophere_delete_domain` |
 | Variables | `drophere_set_variable`, `drophere_list_variables`, `drophere_delete_variable` |
 | KV store | `drophere_kv_get`, `drophere_kv_set`, `drophere_kv_list`, `drophere_kv_delete` |
 
