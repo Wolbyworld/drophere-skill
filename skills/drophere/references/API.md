@@ -2185,7 +2185,7 @@ POST /api/v1/domain-connections
 
 **Body:**
 ```json
-{ "domain": "higes.me" }
+{ "domain": "example.com" }
 ```
 
 `baseDomain` is accepted as an alias for `domain`.
@@ -2194,9 +2194,9 @@ POST /api/v1/domain-connections
 ```json
 {
   "id": "b38ab24c-76e3-4c16-b822-87bb8d350d58",
-  "domain": "higes.me",
-  "base_domain": "higes.me",
-  "registrable_domain": "higes.me",
+  "domain": "example.com",
+  "base_domain": "example.com",
+  "registrable_domain": "example.com",
   "state": "pending",
   "method": "manual",
   "ready": false,
@@ -2208,12 +2208,12 @@ POST /api/v1/domain-connections
   "dns_instructions": [
     {
       "type": "TXT",
-      "name": "_drophere-connect.higes.me",
+      "name": "_drophere-connect.example.com",
       "value": "PUBLIC_VERIFICATION_TOKEN"
     },
     {
       "type": "CNAME",
-      "name": "*.higes.me",
+      "name": "*.example.com",
       "value": "fallback.drophere.cc",
       "proxied": false
     }
@@ -2251,8 +2251,8 @@ GET /api/v1/domain-connections
 {
   "domain_connections": [
     {
-      "domain": "higes.me",
-      "registrable_domain": "higes.me",
+      "domain": "example.com",
+      "registrable_domain": "example.com",
       "state": "active",
       "ready": true,
       "txt_verified": true,
@@ -2306,7 +2306,7 @@ DELETE /api/v1/domain-connections/:domain
 ```json
 {
   "success": true,
-  "domain": "higes.me",
+  "domain": "example.com",
   "dns_records_unchanged": true,
   "already_disconnected": false
 }
@@ -2347,7 +2347,7 @@ To create an exact child under an active connected domain:
 
 ```json
 {
-  "connectedDomain": "higes.me",
+  "connectedDomain": "example.com",
   "domain": "alvaroiscool"
 }
 ```
@@ -2361,16 +2361,18 @@ parent; a lost fence first claims the still-current local attempt, then
 performs provider-first cleanup. A superseded request cannot delete its
 successor's provider hostname. A verified parent may convert a same-owner
 standalone child, reparent a child whose old authority is retired or expired,
-or reclaim a foreign direct child. For an ineffective old connected child with
-a provider hostname, Drophere first leases the exact old registration, proves
-hostname, binding nonce, and old parent ID through authoritative readback, and
-deletes it provider-first. Only confirmed deletion or authoritative `404`
-advances the atomic reparent and new provider create; a timeout returns
+or reclaim a foreign direct child. When a superseded standalone or connected
+child has a stored provider hostname ID, Drophere first leases the exact old
+registration, proves the exact ID and hostname plus any available metadata,
+and deletes it provider-first. A foreign standalone child whose authoritative
+provider hostname and SSL statuses are active remains a conflict even when
+local cached statuses are stale; a same-owner standalone child can be converted
+without losing its links. Only confirmed deletion or authoritative `404` advances the atomic
+reparent and new provider create; a timeout returns
 `502 CONNECTED_DOMAIN_CHILD_CLEANUP_RETRY_REQUIRED` and preserves the old
-fail-closed state for retry. For standalone rows, no provider
-hostname ID may prove a bound serving registration; stale local `active` flags do
-not create authority. Expired refresh and deletion claims are retired by the
-same locked conversion. If Cloudflare reports a hostname bound to that exact
+fail-closed state for retry. Stale local `active` flags do not create authority.
+Expired refresh and deletion claims are retired by the same locked conversion.
+If Cloudflare reports a hostname bound to that exact
 superseded Drophere nonce and, for a connected child, the immutable old parent
 connection ID, Drophere deletes it provider-first and retries with the
 connected binding. Fully serving, provider-verified foreign children
@@ -2378,8 +2380,9 @@ remain conflicts and are never taken over. Superseded cleanup claims have
 expiring leases, so a stopped worker cannot strand the hostname. A same-owner
 prior namespace remains durably fenced until the successor provider binding is
 persisted. If the new parent authority is lost after provider cleanup, Drophere
-restores that namespace and its links as a fail-closed standalone registration
-instead of deleting them. A late same-owner superseded provider writeback
+clears the deleted binding and active statuses before returning. A same-owner
+standalone keeps its namespace and links in that fail-closed state instead of
+deleting them. A late same-owner superseded provider writeback
 converts the preserved provider identity into local-only recovery identity
 after cleaning its own provider record, so it cannot erase that fallback
 before the successor is durable. Its response includes `registration_mode:
@@ -2421,7 +2424,7 @@ before the successor is durable. Its response includes `registration_mode:
 **Connected-child response (201):**
 ```json
 {
-  "domain": "alvaroiscool.higes.me",
+  "domain": "alvaroiscool.example.com",
   "status": "pending",
   "ssl_status": "pending",
   "provider_status": "pending",
@@ -2429,7 +2432,7 @@ before the successor is durable. Its response includes `registration_mode:
   "provider_configured": true,
   "serving_ready": false,
   "registration_mode": "connected_subdomain",
-  "connected_domain": "higes.me",
+  "connected_domain": "example.com",
   "connected_domain_label": "alvaroiscool",
   "dns_managed_by_connection": true,
   "dns_instructions": null,
@@ -2452,11 +2455,13 @@ delete continue to accept ASCII punycode hostnames for lifecycle compatibility
 with preexisting rows.
 
 Registration calls Cloudflare for SaaS and persists the returned hostname,
-certificate, ownership, and DCV state. A local nonce is mirrored in Cloudflare
-custom metadata and must match before Drophere adopts or deletes a provider
-record. Cloudflare must enable Custom Hostname custom metadata for the account;
-if metadata is unavailable, provisioning fails without falling back to a
-hostname-only match. Provisioning uses a short database lease: concurrent live
+certificate, ownership, and DCV state. When Cloudflare custom metadata is
+available, a local nonce is mirrored there and must match before Drophere
+adopts or deletes the provider record. Pay-as-you-go accounts without custom
+metadata automatically use the exact Cloudflare hostname ID returned by the
+successful create and persisted on the registration. Later reads and deletes
+must match that stored ID and exact hostname; Drophere never adopts or deletes
+a metadata-less record discovered only by name. Provisioning uses a short database lease: concurrent live
 claims are rejected, while a crashed claim becomes safely retryable. Each claim
 has a fencing token and captures the current applied refresh generation, so an expired
 request cannot overwrite newer provisioning completion or newer verified
@@ -2464,8 +2469,17 @@ provider evidence. A request timeout does not prove that Cloudflare cancelled
 the server-side create. Ambiguous outcomes remain `provisioning_uncertain`,
 retain their registration claim, and reject deletion even after the lease
 expires. A later retry claims the row first, then clears that uncertainty only
-after an exact hostname-and-nonce match is confirmed by an authoritative
-provider read.
+after an authoritative provider read proves the binding. Metadata-backed
+registrations use hostname plus nonce. A metadata-less create whose successful
+response is lost has no safe provider-ID proof and remains fail-closed for
+operator cleanup rather than being adopted by hostname.
+If the exact provider ID is created but the database binding fence changes
+before Drophere can persist it, Drophere deletes that exact provider record and
+returns `409 CUSTOM_DOMAIN_PROVISIONING_RETRY_REQUIRED` with
+`retryable: true`. Retry the same registration request; do not create or delete
+a hostname directly at the provider. The same response is returned if authority
+changes while Drophere clears an exact provider ID already proven absent; that
+row remains `provisioning_uncertain` and immediately retryable.
 A domain
 does not serve until its bound provider record
 exists and both local and raw provider hostname/SSL statuses are `active`.
@@ -2531,9 +2545,11 @@ POST /api/v1/domains/:domain/refresh
 Reads the Cloudflare custom hostname, persists the provider readback, and
 returns the same shape as Get Domain. Refresh does not rewrite cached link
 snapshots, so it cannot resurrect a concurrently deleted or retargeted link.
-When no provider hostname ID is stored, hostname search is discovery only;
-Drophere reads the discovered exact ID again and validates its current hostname
-and binding metadata before persisting it.
+Metadata-backed records require the registration nonce. Metadata-less records
+require the exact provider hostname ID already persisted on the registration
+and an exact hostname match. When no provider hostname ID is stored, hostname
+search is discovery only; Drophere reads the discovered exact ID again and
+requires matching custom metadata before persisting it.
 Refresh takes an exclusive two-minute claim with a monotonic generation and
 captures the registration's immutable namespace ID and binding nonce.
 Concurrent refresh and deletion attempts return
@@ -2575,7 +2591,8 @@ same registration so Drophere can reconcile the exact binding. When the
 provider record is discovered by hostname, Drophere performs an authoritative
 read of that exact record before detaching. A live provisioning or refresh
 claim returns `409 CUSTOM_DOMAIN_OPERATION_IN_PROGRESS`. If the provider record
-still has this registration's exact hostname and binding nonce, detach returns
+still has this registration's binding proof—custom metadata, or the persisted
+provider ID plus exact hostname—detach returns
 `409 CUSTOM_DOMAIN_PROVIDER_BINDING_MATCHES`; use normal deletion so provider
 cleanup happens first. Provider errors leave local state intact for retry.
 
@@ -2621,11 +2638,11 @@ were deleted.
 For a verified binding, Drophere removes the custom hostname and its
 certificates at Cloudflare before deleting local links, database state, and KV.
 If provider deletion fails, local ownership and routing state remain available
-for a safe retry. Provider metadata must prove the record is bound to the local
-registration before deletion.
+for a safe retry. Metadata-backed records require the registration nonce;
+metadata-less records require the persisted provider ID plus exact hostname.
 When the row has no stored provider hostname ID, hostname search is discovery
-only: Drophere reads the discovered exact ID again and revalidates its current
-hostname and binding metadata before sending the delete request.
+only: Drophere reads the discovered exact ID again and requires matching custom
+metadata before sending the delete request.
 If that binding no longer matches, Drophere marks the local domain failed and
 purges routing KV without deleting the foreign provider record.
 Deletion claims block new domain-link writes and provider refreshes while the
@@ -2636,7 +2653,7 @@ Deletion returns `409 CUSTOM_DOMAIN_OPERATION_IN_PROGRESS` while a live
 provisioning lease exists or while a create outcome remains
 `provisioning_uncertain`. Provider request timeouts do not imply server-side
 cancellation. After the lease expires, retry provisioning to reconcile the
-exact hostname-and-nonce binding; deletion becomes available only after that
+exact provider binding; deletion becomes available only after that
 uncertainty is cleared.
 Domain routing cache is bound to the registration's immutable namespace ID and
 provider nonce; legacy or mismatched snapshots fail closed and are invalidated.
