@@ -2473,6 +2473,11 @@ after an authoritative provider read proves the binding. Metadata-backed
 registrations use hostname plus nonce. A metadata-less create whose successful
 response is lost has no safe provider-ID proof and remains fail-closed for
 operator cleanup rather than being adopted by hostname.
+When an authoritative provider read explicitly reports that the Cloudflare
+zone has no fallback origin, authenticated registration and refresh repair the
+account-level setting to the environment-defined
+`CF_CUSTOM_HOSTNAMES_CNAME_TARGET`, then re-read the same exact provider ID.
+The repair target is never derived from the requested customer hostname.
 If the exact provider ID is created but the database binding fence changes
 before Drophere can persist it, Drophere deletes that exact provider record and
 returns `409 CUSTOM_DOMAIN_PROVISIONING_RETRY_REQUIRED` with
