@@ -456,9 +456,35 @@ than asking them to call REST manually:
 
 Use `drophere_list_domains` and `drophere_get_domain` for persisted status.
 `drophere_delete_domain` removes the verified provider hostname before local
-routing state. `drophere_detach_domain` is a destructive recovery operation
-that removes only local state and must not be used while the provider binding
-still belongs to Drophere.
+routing state when the response confirms a normal deletion. If its response
+contains `already_deleted: true` or `provider_cleanup_skipped: true`, provider
+cleanup is unconfirmed: tell the user an operator must verify and remove any
+remaining provider hostname or certificates. Never describe either result as
+confirmed provider deletion. `drophere_detach_domain` is a destructive recovery
+operation that removes only local state and must not be used while the provider
+binding still belongs to Drophere.
+
+### Connect one domain for future subdomains
+
+When the user wants several Drophere sites below the same owned domain, connect
+the base once instead of asking for a DNS change for every hostname:
+
+1. Call `drophere_connect_domain` with the registrable root, such as
+   `example.com`. V1 does not accept delegated subzones.
+2. Give the user the returned public ownership TXT and wildcard CNAME. The
+   wildcard must be **DNS only**, not proxied.
+3. Call `drophere_refresh_connected_domain` until `ready` is `true`.
+4. Call `drophere_register_domain` with `connectedDomain: "example.com"` and
+   a one-label `domain`, such as `"docs"`.
+5. Route the exact hostname with `drophere_set_link`.
+
+Existing and future exact DNS records override the wildcard and are never
+changed by Drophere. Unknown wildcard hostnames return 404. Every claimed
+child is still an exact Cloudflare custom hostname and certificate; Drophere
+does not create an Enterprise wildcard hostname. Use
+`drophere_list_connected_domains` and `drophere_get_connected_domain` for
+persisted status. Remove all exact children before calling
+`drophere_disconnect_domain`; disconnect never removes external DNS records.
 
 ## Key-Value Store
 

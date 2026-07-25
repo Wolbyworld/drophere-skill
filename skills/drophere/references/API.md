@@ -2163,7 +2163,172 @@ Agents can manage the full lifecycle with `drophere_register_domain`,
 `drophere_list_domains`, `drophere_get_domain`, `drophere_refresh_domain`,
 `drophere_detach_domain`, and `drophere_delete_domain`. These tools use the
 same authenticated operations and return the same success and error fields as
-the REST endpoints below.
+the REST endpoints below. For one-time wildcard setup and automatic exact
+children, use `drophere_connect_domain`, `drophere_list_connected_domains`,
+`drophere_get_connected_domain`, `drophere_refresh_connected_domain`, and
+`drophere_disconnect_domain`; pass `connectedDomain` to
+`drophere_register_domain` when creating the child.
+
+### Connect a domain for automatic subdomains
+
+Connect a registrable root domain once, then register exact one-label child
+hostnames without making another DNS change. V1 rejects delegated subzones so
+subzone control cannot monopolize the root owner's registrable-wide authority.
+Existing and future exact DNS records remain under the DNS owner's control and
+take precedence over the wildcard.
+
+```
+POST /api/v1/domain-connections
+```
+
+**Auth:** Required
+
+**Body:**
+```json
+{ "domain": "higes.me" }
+```
+
+`baseDomain` is accepted as an alias for `domain`.
+
+**Response (201):**
+```json
+{
+  "id": "b38ab24c-76e3-4c16-b822-87bb8d350d58",
+  "domain": "higes.me",
+  "base_domain": "higes.me",
+  "registrable_domain": "higes.me",
+  "state": "pending",
+  "method": "manual",
+  "ready": false,
+  "txt_verified": false,
+  "wildcard_verified": false,
+  "child_count": 0,
+  "dns_verified_at": null,
+  "authority_valid_until": null,
+  "dns_instructions": [
+    {
+      "type": "TXT",
+      "name": "_drophere-connect.higes.me",
+      "value": "PUBLIC_VERIFICATION_TOKEN"
+    },
+    {
+      "type": "CNAME",
+      "name": "*.higes.me",
+      "value": "fallback.drophere.cc",
+      "proxied": false
+    }
+  ],
+  "last_error": "Waiting for the ownership TXT and DNS-only wildcard CNAME to propagate."
+}
+```
+
+The public TXT token binds the external domain to the authenticated Drophere
+account. The wildcard must be a DNS-only CNAME to the returned target. Drophere
+checks a random, unclaimed hostname rather than relying on a literal wildcard
+lookup. A foreign wildcard CNAME or an address-only wildcard produces
+`state: "conflict"` and is never replaced automatically.
+
+Different accounts may hold pending candidates for the same registrable root;
+an unproven candidate does not disrupt the serving owner. Activation is
+serialized after both DNS proofs pass. A successful new proof retires the prior
+authority and activates a new immutable connection ID and TXT token. Retired
+rows remain as tombstones for old child foreign keys. Only one non-retired
+active or disconnecting authority can exist. A fully serving standalone direct
+child owned by another account blocks activation. Pending, failed, unbound,
+deeper, and connected children tied to a retired, expired, or mismatched parent
+cannot squat the authority.
+
+### List connected domains
+
+```
+GET /api/v1/domain-connections
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "domain_connections": [
+    {
+      "domain": "higes.me",
+      "registrable_domain": "higes.me",
+      "state": "active",
+      "ready": true,
+      "txt_verified": true,
+      "wildcard_verified": true,
+      "dns_verified_at": "2026-07-25T06:00:00.000Z",
+      "authority_valid_until": "2026-07-27T06:00:00.000Z",
+      "child_count": 2
+    }
+  ]
+}
+```
+
+### Get or refresh a connected domain
+
+```
+GET  /api/v1/domain-connections/:domain
+POST /api/v1/domain-connections/:domain/refresh
+```
+
+**Auth:** Required
+
+Refresh performs authoritative TXT, CNAME, A, and AAAA readback through the
+configured DNS-over-HTTPS resolver. It uses a two-minute fenced claim, persists
+the observation, and returns the same connected-domain shape. Concurrent
+refresh or disconnect operations return
+`409 CONNECTED_DOMAIN_OPERATION_IN_PROGRESS`. Resolver failures return
+`502 CONNECTED_DOMAIN_DNS_ERROR`. Successful proof renews the configured
+authority lease (48 hours by default). A dedicated two-minute trigger
+revalidates at most 6 connections in the 24-hour renewal window through the
+same token/generation lease. Each row consumes four DNS-over-HTTPS requests and
+up to three Neon HTTP requests; with the batch lookup, a full batch uses at
+most 43 of the Workers Free 50-subrequest limit and allows about 4,320 renewal
+attempts per day. Least-recently-checked rows run first,
+then nearest expiry, so failures rotate behind unchecked due work while
+remaining eligible for a later pre-expiry retry. The token fences mutation but
+does not suspend otherwise fresh authority. An authoritative negative TXT or
+wildcard result retires an active authority immediately. A resolver transport
+failure records the attempt and clears the refresh claim for retry on a later
+scheduled run, but never extends the last successful lease. Edge serving and REST/MCP
+`serving_ready` both require a non-retired parent whose lease has not expired.
+
+### Disconnect a connected domain
+
+```
+DELETE /api/v1/domain-connections/:domain
+```
+
+**Auth:** Required
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "domain": "higes.me",
+  "dns_records_unchanged": true,
+  "already_disconnected": false
+}
+```
+
+Every exact child registration must be removed first; otherwise the endpoint
+returns `409 CONNECTED_DOMAIN_HAS_CHILDREN` with `child_count`. Disconnect uses
+a fenced database claim and never deletes or changes external DNS records.
+Repeating DELETE after a lost success response returns 200 with
+`already_disconnected: true`.
+
+Connected-domain errors use the standard `{ "error", "code" }` shape:
+
+| HTTP | Code | Meaning |
+|---|---|---|
+| 400 | `DOMAIN_REQUIRED`, `INVALID_HOSTNAME`, `CONNECTED_DOMAIN_REQUIRES_REGISTRABLE_DOMAIN`, `CONNECTED_DOMAIN_CHILD_INVALID`, `DROPHERE_HOSTNAME_RESERVED` | Input is absent, malformed, unsupported, or outside the one-label/base-domain policy |
+| 404 | `CONNECTED_DOMAIN_NOT_FOUND` | The authenticated owner has no matching connection |
+| 409 | `CONNECTED_DOMAIN_AUTHORITY_CONFLICT`, `CONNECTED_DOMAIN_AUTHORITY_EXPIRED`, `CONNECTED_DOMAIN_USE_CONNECTION`, `CONNECTED_DOMAIN_CHILD_REGISTRATION_CONFLICT` | Exact-host or connected-authority ownership conflicts, or an expired proof lease |
+| 409 | `CONNECTED_DOMAIN_NOT_READY`, `CONNECTED_DOMAIN_WILDCARD_CONFLICT`, `CONNECTED_DOMAIN_CHILD_DNS_CONFLICT` | DNS proof is incomplete or points elsewhere |
+| 409 | `CONNECTED_DOMAIN_OPERATION_IN_PROGRESS`, `CONNECTED_DOMAIN_REFRESH_SUPERSEDED`, `CONNECTED_DOMAIN_RETRY_REQUIRED`, `CONNECTED_DOMAIN_DISCONNECT_RETRY_REQUIRED`, `CONNECTED_DOMAIN_HAS_CHILDREN` | A fenced lifecycle operation must finish or be retried |
+| 502 | `CONNECTED_DOMAIN_DNS_ERROR` | Authoritative DNS-over-HTTPS readback failed |
+| 503 | `CONNECTED_DOMAINS_NOT_CONFIGURED` | Resolver or wildcard target configuration is missing |
 
 ### Add Custom Domain
 
@@ -2178,7 +2343,50 @@ POST /api/v1/domains
 { "domain": "docs.example.com" }
 ```
 
-**Response (201):**
+To create an exact child under an active connected domain:
+
+```json
+{
+  "connectedDomain": "higes.me",
+  "domain": "alvaroiscool"
+}
+```
+
+`domain` may be the single label or the fully qualified child hostname. A
+connected child must be exactly one label below its base domain. Drophere
+refreshes the parent DNS proof, requires the child to inherit the expected
+wildcard CNAME, and creates an exact Cloudflare custom hostname using HTTP
+validation. Provider completion is fenced on the still-active DNS-proven
+parent; a lost fence first claims the still-current local attempt, then
+performs provider-first cleanup. A superseded request cannot delete its
+successor's provider hostname. A verified parent may convert a same-owner
+standalone child, reparent a child whose old authority is retired or expired,
+or reclaim a foreign direct child. For an ineffective old connected child with
+a provider hostname, Drophere first leases the exact old registration, proves
+hostname, binding nonce, and old parent ID through authoritative readback, and
+deletes it provider-first. Only confirmed deletion or authoritative `404`
+advances the atomic reparent and new provider create; a timeout returns
+`502 CONNECTED_DOMAIN_CHILD_CLEANUP_RETRY_REQUIRED` and preserves the old
+fail-closed state for retry. For standalone rows, no provider
+hostname ID may prove a bound serving registration; stale local `active` flags do
+not create authority. Expired refresh and deletion claims are retired by the
+same locked conversion. If Cloudflare reports a hostname bound to that exact
+superseded Drophere nonce and, for a connected child, the immutable old parent
+connection ID, Drophere deletes it provider-first and retries with the
+connected binding. Fully serving, provider-verified foreign children
+remain conflicts and are never taken over. Superseded cleanup claims have
+expiring leases, so a stopped worker cannot strand the hostname. A same-owner
+prior namespace remains durably fenced until the successor provider binding is
+persisted. If the new parent authority is lost after provider cleanup, Drophere
+restores that namespace and its links as a fail-closed standalone registration
+instead of deleting them. A late same-owner superseded provider writeback
+converts the preserved provider identity into local-only recovery identity
+after cleaning its own provider record, so it cannot erase that fallback
+before the successor is durable. Its response includes `registration_mode:
+"connected_subdomain"`, `dns_managed_by_connection: true`, and
+`dns_instructions: null`; no additional DNS change is required.
+
+**Standalone response (201):**
 ```json
 {
   "domain": "docs.example.com",
@@ -2188,6 +2396,10 @@ POST /api/v1/domains
   "provider_ssl_status": "pending_validation",
   "provider_configured": true,
   "serving_ready": false,
+  "registration_mode": "standalone",
+  "connected_domain": null,
+  "connected_domain_label": null,
+  "dns_managed_by_connection": false,
   "dns_instructions": {
     "type": "CNAME",
     "name": "docs.example.com",
@@ -2206,7 +2418,38 @@ POST /api/v1/domains
 }
 ```
 
+**Connected-child response (201):**
+```json
+{
+  "domain": "alvaroiscool.higes.me",
+  "status": "pending",
+  "ssl_status": "pending",
+  "provider_status": "pending",
+  "provider_ssl_status": "pending_validation",
+  "provider_configured": true,
+  "serving_ready": false,
+  "registration_mode": "connected_subdomain",
+  "connected_domain": "higes.me",
+  "connected_domain_label": "alvaroiscool",
+  "dns_managed_by_connection": true,
+  "dns_instructions": null,
+  "ownership_verification": null,
+  "ssl_validation_records": [],
+  "verification_errors": [],
+  "last_error": null
+}
+```
+
+Connected children request HTTP validation from Cloudflare, but
+`ownership_verification` is provider-returned diagnostic data and may be
+`null`, TXT-shaped, or HTTP-shaped. Treat `registration_mode`,
+`dns_managed_by_connection`, and `dns_instructions` as the stable Drophere
+discriminators.
+
 Do not register `*.drophere.cc` names here. A request such as `drophelloworld.drophere.cc` returns `400` with `code: "DROPHERE_HOSTNAME_RESERVED"` and `suggestedSlug: "drophelloworld"`; create a persistent artifact with that `slug` instead.
+New registrations reject Unicode and punycode IDNs. Read, refresh, detach, and
+delete continue to accept ASCII punycode hostnames for lifecycle compatibility
+with preexisting rows.
 
 Registration calls Cloudflare for SaaS and persists the returned hostname,
 certificate, ownership, and DCV state. A local nonce is mirrored in Cloudflare
@@ -2226,6 +2469,10 @@ provider read.
 A domain
 does not serve until its bound provider record
 exists and both local and raw provider hostname/SSL statuses are `active`.
+Connected children additionally require their parent to remain active,
+TXT/wildcard verified, and free of a disconnect claim on every edge read.
+`serving_ready` applies that same parent-authority check in registration,
+list, get, and refresh responses, including the equivalent MCP tools.
 Apex domains require DNS-provider CNAME
 flattening or Cloudflare's separate apex-proxying product; they are not
 universally supported by an ALIAS record.
@@ -2321,8 +2568,10 @@ POST /api/v1/domains/:domain/detach
 
 This recovery operation removes the domain registration, its local links, and
 routing cache without creating, updating, or deleting any Cloudflare record.
-It is available for a failed foreign binding, for authoritative absence, and
-for an uncertain create only after its provisioning lease expires. When the
+It is available for a failed foreign binding and for authoritative absence
+when no create outcome is uncertain. An expired `provisioning_uncertain` row is
+preserved when provider lookup is absent; retry `POST /api/v1/domains` with the
+same registration so Drophere can reconcile the exact binding. When the
 provider record is discovered by hostname, Drophere performs an authoritative
 read of that exact record before detaching. A live provisioning or refresh
 claim returns `409 CUSTOM_DOMAIN_OPERATION_IN_PROGRESS`. If the provider record
@@ -2343,10 +2592,37 @@ DELETE /api/v1/domains/:domain
 { "success": true }
 ```
 
-Drophere removes the custom hostname and its certificates at Cloudflare before
-deleting local links, database state, and KV. If provider deletion fails, local
-ownership and routing state remain available for a safe retry. Provider metadata
-must prove the record is bound to the local registration before deletion.
+For a legacy registration without a verified provider binding, the response is:
+
+```json
+{
+  "success": true,
+  "provider_cleanup_skipped": true
+}
+```
+
+`provider_cleanup_skipped: true` means Drophere removed only its local
+registration and routes. Drophere did not prove or delete a provider hostname
+or its certificates. An operator must verify and remove any remaining provider
+state; clients must never describe this response as confirmed provider
+deletion.
+
+Repeating DELETE after the local row is already absent returns:
+
+```json
+{ "success": true, "already_deleted": true }
+```
+
+This retry is idempotent, but it cannot prove the outcome of an earlier provider
+operation. Clients must treat provider cleanup as unconfirmed and require an
+operator check rather than claiming that the provider hostname or certificates
+were deleted.
+
+For a verified binding, Drophere removes the custom hostname and its
+certificates at Cloudflare before deleting local links, database state, and KV.
+If provider deletion fails, local ownership and routing state remain available
+for a safe retry. Provider metadata must prove the record is bound to the local
+registration before deletion.
 When the row has no stored provider hostname ID, hostname search is discovery
 only: Drophere reads the discovered exact ID again and revalidates its current
 hostname and binding metadata before sending the delete request.
