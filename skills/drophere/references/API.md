@@ -2265,6 +2265,22 @@ checks a random, unclaimed hostname rather than relying on a literal wildcard
 lookup. A foreign wildcard CNAME or an address-only wildcard produces
 `state: "conflict"` and is never replaced automatically.
 
+#### DNS provider setup
+
+Copy the exact record names, public TXT token, and wildcard target returned by
+Drophere. On Cloudflare, open **DNS → Records**, add the TXT with Name
+`_drophere-connect`, add the CNAME with Name `*`, and set the CNAME to
+**DNS only** (grey cloud) with TTL Auto. The orange-cloud Proxied setting hides
+the required CNAME and produces a wildcard conflict. Then call
+`POST /api/v1/domain-connections/:domain/refresh`.
+
+Other providers use the same returned values, but may require either the short
+record names or the complete names. Disable any proxy or CDN option for the
+wildcard. Existing exact DNS records override the wildcard and do not need to
+change. If a wildcard already exists, do not create a duplicate or replace it
+blindly. Providers without wildcard CNAME support can use exact custom
+hostnames instead.
+
 Different accounts may hold pending candidates for the same registrable root;
 an unproven candidate does not disrupt the serving owner. Activation is
 serialized after both DNS proofs pass. A successful new proof retires the prior
@@ -2301,6 +2317,7 @@ GET /api/v1/domain-connections
       "sharing": {
         "mode": "private",
         "email_domain": null,
+        "eligible_email_domain": "example.com",
         "version": 0,
         "members": []
       }
@@ -2325,9 +2342,10 @@ PATCH /api/v1/domain-connections/:domain
 **Body:**
 ```json
 {
-  "sharingMode": "selected",
-  "memberEmails": ["teammate@example.com"],
-  "expectedSharingVersion": 0
+  "sharingMode": "email_domain",
+  "memberEmails": [],
+  "expectedSharingVersion": 0,
+  "emailDomainConfirmation": "example.com"
 }
 ```
 
@@ -2336,10 +2354,17 @@ PATCH /api/v1/domain-connections/:domain
 - `private` — only the connector account and its agents;
 - `selected` — the owner plus up to 50 existing Drophere accounts at the
   owner's exact non-consumer email domain;
-- `email_domain` — every current or future verified Drophere account at that
-  exact email domain, only when the connected root exactly matches the owner's
-  account email domain. The existing connected-domain DNS proof is the
-  organization-domain proof; use `selected` for other roots.
+- `email_domain` — every current or future verified Drophere account at the
+  connector's exact non-consumer account email domain, for any connected root
+  owned by that connector. DNS proves ownership of the shared root; Drophere
+account verification establishes each member's email.
+
+Before enabling `email_domain`, read the latest owner response, show the user
+the full current-and-future audience, and obtain explicit confirmation. Send
+the exact server-provided `sharing.eligible_email_domain` as
+`emailDomainConfirmation`. The API rejects a missing or different value; do
+not derive this value from browser storage, the connected root, or user input.
+The field is `null` when account-domain sharing is unavailable.
 
 The connector remains the owner of the root, exact provider hostnames,
 namespace, quota usage, and cleanup. Agents inherit their authenticated user's
@@ -2412,7 +2437,7 @@ Connected-domain errors use the standard `{ "error", "code" }` shape:
 | HTTP | Code | Meaning |
 |---|---|---|
 | 400 | `DOMAIN_REQUIRED`, `INVALID_HOSTNAME`, `CONNECTED_DOMAIN_REQUIRES_REGISTRABLE_DOMAIN`, `CONNECTED_DOMAIN_CHILD_INVALID`, `DROPHERE_HOSTNAME_RESERVED` | Input is absent, malformed, unsupported, or outside the one-label/base-domain policy |
-| 400 | `CONNECTED_DOMAIN_SHARING_MODE_INVALID`, `CONNECTED_DOMAIN_SHARING_VERSION_REQUIRED`, `CONNECTED_DOMAIN_SHARING_EMAIL_DOMAIN_UNSUPPORTED`, `CONNECTED_DOMAIN_SHARING_EMAIL_DOMAIN_OWNERSHIP_REQUIRED`, `CONNECTED_DOMAIN_MEMBERS_INVALID`, `CONNECTED_DOMAIN_MEMBER_EMAIL_DOMAIN_MISMATCH`, `CONNECTED_DOMAIN_MEMBER_ACCOUNT_NOT_FOUND` | Sharing input, organization-domain proof, or account eligibility is invalid |
+| 400 | `CONNECTED_DOMAIN_SHARING_MODE_INVALID`, `CONNECTED_DOMAIN_SHARING_VERSION_REQUIRED`, `CONNECTED_DOMAIN_SHARING_EMAIL_DOMAIN_UNSUPPORTED`, `CONNECTED_DOMAIN_SHARING_EMAIL_DOMAIN_CONFIRMATION_REQUIRED`, `CONNECTED_DOMAIN_MEMBERS_INVALID`, `CONNECTED_DOMAIN_MEMBER_EMAIL_DOMAIN_MISMATCH`, `CONNECTED_DOMAIN_MEMBER_ACCOUNT_NOT_FOUND` | Sharing input, audience confirmation, or account eligibility is invalid |
 | 404 | `CONNECTED_DOMAIN_NOT_FOUND` | The authenticated owner has no matching connection |
 | 409 | `CONNECTED_DOMAIN_LIMIT_REACHED` | The connector account already has 5 non-retired connected roots |
 | 409 | `CONNECTED_DOMAIN_SHARING_CHANGED` | Sharing changed after the caller's last read; refresh and retry with the current version |

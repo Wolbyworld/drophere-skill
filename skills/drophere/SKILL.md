@@ -501,12 +501,21 @@ The connector may use `drophere_set_connected_domain_sharing` with the last
 observed `sharing.version` to choose `private`, `selected`, or `email_domain`.
 Selected accounts must already exist at the connector's exact non-consumer
 email domain. Email-domain mode dynamically includes verified accounts only
-when the connected root exactly matches the connector's account email domain;
-the connected-domain DNS proof is the organization-domain proof. Use selected
-sharing for other roots. Agents inherit the authenticated user's access. Members may create and
-manage only their own children/routes and route only their own artifacts.
-Connector ownership, billing, provider cleanup, and authority never transfer.
-Revocation blocks later management but does not stop existing sites.
+at the connector's exact non-consumer account email domain, for any connected
+root that connector owns. DNS proves ownership of the shared root; Drophere
+account verification establishes each member's email. Agents inherit the
+authenticated user's access. Members may create and manage only their own
+children/routes and route only their own artifacts. Connector ownership,
+billing, provider cleanup, and authority never transfer. Revocation blocks
+later management but does not stop existing sites.
+
+Before using `email_domain`, read the latest connection, show the user that
+every current and future verified account at
+`sharing.eligible_email_domain` will gain access, and get explicit
+confirmation. Pass that exact server-provided value as
+`emailDomainConfirmation`; never infer it from the connected root or cached
+account data. A null `sharing.eligible_email_domain` means this mode is
+unavailable.
 
 ## Key-Value Store
 
