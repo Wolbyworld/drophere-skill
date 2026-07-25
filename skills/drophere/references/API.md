@@ -168,7 +168,11 @@ GET /api/v1/billing/plans
       "id": "secure",
       "name": "Unlimited Pro",
       "description": "Volume publishing with collaboration and protected access controls.",
-      "features": ["Unlimited persistent artifacts", "Custom artifact slugs", "Access controls", "Collaboration", "Service variables", "Custom domains"],
+      "features": ["Unlimited persistent artifacts", "Custom artifact slugs", "Access controls", "Collaboration", "Service variables", "Custom domains", "20 custom hostnames", "5 connected root domains"],
+      "limits": {
+        "customHostnames": 20,
+        "connectedRootAuthorities": 5
+      },
       "price": "$9.99/month"
     }
   ]
@@ -192,7 +196,11 @@ GET /api/v1/billing/status
   "subscriptionStatus": null,
   "usage": {
     "persistentArtifacts": 3,
-    "persistentArtifactLimit": 10
+    "persistentArtifactLimit": 10,
+    "customHostnames": 0,
+    "customHostnameLimit": 0,
+    "connectedRootAuthorities": 0,
+    "connectedRootAuthorityLimit": 0
   },
   "features": {
     "apiAndMcp": true,
@@ -285,7 +293,7 @@ Paid-feature gates return HTTP 402 with a structured error. Agents should presen
 }
 ```
 
-Free Token includes API and MCP access, unlimited 24-hour artifacts, and 10 persistent artifacts. Unlimited unlocks unlimited persistent artifacts. Unlimited Pro unlocks access control, password protection, collaboration, service variables, and custom domains.
+Free Token includes API and MCP access, unlimited 24-hour artifacts, and 10 persistent artifacts. Unlimited unlocks unlimited persistent artifacts. Unlimited Pro unlocks access control, password protection, collaboration, service variables, and custom domains, with up to 20 exact custom hostnames and 5 connected root authorities per account. Every exact `domains` row counts until it is deleted, including pending or failed rows and children created by people using a shared connection. A connected root counts until it is retired.
 
 ---
 
@@ -929,11 +937,29 @@ is `abandoned`; it is terminal and cannot be finalized or discarded.
       "fileCount": 12,
       "createdAt": "2026-06-28T12:00:00.000Z",
       "finalizedAt": "2026-06-28T12:03:00.000Z",
-      "savedAt": "2026-06-28T12:03:00.000Z"
+      "savedAt": "2026-06-28T12:03:00.000Z",
+      "previewUrl": "https://preview-….drophere.cc/",
+      "previewExpiresAt": "2026-06-29T12:03:00.000Z"
     }
   ]
 }
 ```
+
+Every finalized `saved` or `live` version receives a fresh 24-hour signed
+preview URL when history is read. The URL serves that exact immutable file
+snapshot and its finalized viewer settings; it does not change the public live
+version. Pre-preview historical rows are backfilled once with their current
+viewer settings during rollout. Deploying the version restores those same
+viewer settings, so the preview and deployed result match.
+
+Preview hostnames are bearer capabilities: anyone with the URL can reach the
+existing artifact gate, so share them only with intended reviewers. Password
+and restricted-email access still apply, while the signed-in artifact owner
+can pass those gates with the account session. Preview responses are
+`private, no-store`, non-indexable, and suppress referrers. They serve only
+static files and auto-viewers: Store API, proxy, visits, quick edit,
+collaboration, and HTML-to-Markdown are unavailable. Non-finalized versions
+return `previewUrl: null` and `previewExpiresAt: null`.
 
 #### Deploy or Roll Back to a Saved Version
 
@@ -2086,6 +2112,12 @@ cleanup run in one current-registration-locked database mutation. Cleanup
 requires the canonical write to match successfully, so stale cleanup cannot
 remove a root link from a replacement registration.
 
+On a shared connected-domain child, members can list and mutate only routes
+they created, only while their current sharing grant remains valid, and only
+to artifacts they own. The connector can manage every route. When the
+connector edits a member-created route, route management transfers to the
+connector. Revocation does not remove an existing route or stop serving it.
+
 ### List Links
 
 ```
@@ -2190,6 +2222,11 @@ POST /api/v1/domain-connections
 
 `baseDomain` is accepted as an alias for `domain`.
 
+Unlimited Pro accounts may hold up to 5 non-retired connected root
+authorities. Creation and retry are serialized per account; retrying an
+already-counted root remains available at the limit. A new sixth root returns
+`409 CONNECTED_DOMAIN_LIMIT_REACHED`.
+
 **Response (201):**
 ```json
 {
@@ -2259,11 +2296,63 @@ GET /api/v1/domain-connections
       "wildcard_verified": true,
       "dns_verified_at": "2026-07-25T06:00:00.000Z",
       "authority_valid_until": "2026-07-27T06:00:00.000Z",
-      "child_count": 2
+      "child_count": 2,
+      "access_role": "owner",
+      "sharing": {
+        "mode": "private",
+        "email_domain": null,
+        "version": 0,
+        "members": []
+      }
     }
   ]
 }
 ```
+
+The list contains roots owned by the authenticated account plus active roots
+shared with it. A shared member receives `access_role: "member"`, sees only
+their own child count, and does not receive ownership tokens, DNS instructions,
+DNS readback, observed records, or the selected-member list.
+
+### Share a connected domain
+
+```
+PATCH /api/v1/domain-connections/:domain
+```
+
+**Auth:** Required; connected-domain owner only
+
+**Body:**
+```json
+{
+  "sharingMode": "selected",
+  "memberEmails": ["teammate@example.com"],
+  "expectedSharingVersion": 0
+}
+```
+
+`sharingMode` is:
+
+- `private` — only the connector account and its agents;
+- `selected` — the owner plus up to 50 existing Drophere accounts at the
+  owner's exact non-consumer email domain;
+- `email_domain` — every current or future verified Drophere account at that
+  exact email domain, only when the connected root exactly matches the owner's
+  account email domain. The existing connected-domain DNS proof is the
+  organization-domain proof; use `selected` for other roots.
+
+The connector remains the owner of the root, exact provider hostnames,
+namespace, quota usage, and cleanup. Agents inherit their authenticated user's
+permissions. A member can create and manage only exact children and routes
+they created, and may route only artifacts they own. The owner can manage or
+delete every child and takes control of a route when editing it.
+
+`expectedSharingVersion` is the last observed `sharing.version`. A stale value
+returns `409 CONNECTED_DOMAIN_SHARING_CHANGED` with current state. Revoking
+access immediately blocks new child and route mutations, but already-provisioned
+sites keep serving until the owner removes them. Sharing is unavailable for
+consumer email domains such as Gmail, and selected addresses must already be
+verified Drophere accounts at the owner's exact account domain.
 
 ### Get or refresh a connected domain
 
@@ -2323,7 +2412,10 @@ Connected-domain errors use the standard `{ "error", "code" }` shape:
 | HTTP | Code | Meaning |
 |---|---|---|
 | 400 | `DOMAIN_REQUIRED`, `INVALID_HOSTNAME`, `CONNECTED_DOMAIN_REQUIRES_REGISTRABLE_DOMAIN`, `CONNECTED_DOMAIN_CHILD_INVALID`, `DROPHERE_HOSTNAME_RESERVED` | Input is absent, malformed, unsupported, or outside the one-label/base-domain policy |
+| 400 | `CONNECTED_DOMAIN_SHARING_MODE_INVALID`, `CONNECTED_DOMAIN_SHARING_VERSION_REQUIRED`, `CONNECTED_DOMAIN_SHARING_EMAIL_DOMAIN_UNSUPPORTED`, `CONNECTED_DOMAIN_SHARING_EMAIL_DOMAIN_OWNERSHIP_REQUIRED`, `CONNECTED_DOMAIN_MEMBERS_INVALID`, `CONNECTED_DOMAIN_MEMBER_EMAIL_DOMAIN_MISMATCH`, `CONNECTED_DOMAIN_MEMBER_ACCOUNT_NOT_FOUND` | Sharing input, organization-domain proof, or account eligibility is invalid |
 | 404 | `CONNECTED_DOMAIN_NOT_FOUND` | The authenticated owner has no matching connection |
+| 409 | `CONNECTED_DOMAIN_LIMIT_REACHED` | The connector account already has 5 non-retired connected roots |
+| 409 | `CONNECTED_DOMAIN_SHARING_CHANGED` | Sharing changed after the caller's last read; refresh and retry with the current version |
 | 409 | `CONNECTED_DOMAIN_AUTHORITY_CONFLICT`, `CONNECTED_DOMAIN_AUTHORITY_EXPIRED`, `CONNECTED_DOMAIN_USE_CONNECTION`, `CONNECTED_DOMAIN_CHILD_REGISTRATION_CONFLICT` | Exact-host or connected-authority ownership conflicts, or an expired proof lease |
 | 409 | `CONNECTED_DOMAIN_NOT_READY`, `CONNECTED_DOMAIN_WILDCARD_CONFLICT`, `CONNECTED_DOMAIN_CHILD_DNS_CONFLICT` | DNS proof is incomplete or points elsewhere |
 | 409 | `CONNECTED_DOMAIN_OPERATION_IN_PROGRESS`, `CONNECTED_DOMAIN_REFRESH_SUPERSEDED`, `CONNECTED_DOMAIN_RETRY_REQUIRED`, `CONNECTED_DOMAIN_DISCONNECT_RETRY_REQUIRED`, `CONNECTED_DOMAIN_HAS_CHILDREN` | A fenced lifecycle operation must finish or be retried |
@@ -2388,6 +2480,17 @@ after cleaning its own provider record, so it cannot erase that fallback
 before the successor is durable. Its response includes `registration_mode:
 "connected_subdomain"`, `dns_managed_by_connection: true`, and
 `dns_instructions: null`; no additional DNS change is required.
+
+Unlimited Pro accounts may hold up to 20 exact custom hostname rows across
+standalone registrations and connected children. Pending, failed, uncertain,
+and shared-member-created children count until their row is deleted. Shared
+children count against the connector account, not the member. Admission is
+serialized per connector in the same transaction as insert or ownership
+transfer. A provider-bound takeover reserves its destination slot before
+external cleanup, and that in-progress reservation is included in quota usage.
+Retries of an already-counted hostname remain available at or above the limit.
+A new exact hostname over the limit returns
+`409 CUSTOM_HOSTNAME_LIMIT_REACHED` before provider creation.
 
 **Standalone response (201):**
 ```json

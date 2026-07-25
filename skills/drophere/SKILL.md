@@ -88,7 +88,7 @@ Use `drophere_create_artifact` or `drophere_update_artifact` when you need large
 
 Pass an explicit `client_request_id` on create and update mutations when a request may be retried. Drophere commits that key with the artifact or version in PostgreSQL, so the same key and request body recover the committed result even when the short-lived KV retry cache is unavailable.
 
-Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-file upload status. Use `drophere_list_files` and `drophere_get_file` after publishing to verify the deployed files. Publish uploaded pending versions with `drophere_publish_uploaded_version`; `drophere_finalize_artifact` remains available as the compatibility name. When an owner wants review before release, use `drophere_save_uploaded_version`, inspect the returned saved state/version history, then use `drophere_deploy_saved_version` with the observed `expectedCurrentVersionId`. Deploying an older saved version performs rollback.
+Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-file upload status. Use `drophere_list_files` and `drophere_get_file` after publishing to verify the deployed files. Publish uploaded pending versions with `drophere_publish_uploaded_version`; `drophere_finalize_artifact` remains available as the compatibility name. When an owner wants review before release, use `drophere_save_uploaded_version`, then read `drophere_list_artifact_versions` and share the finalized version's 24-hour `previewUrl` when review access is intended. The preview serves immutable static files and finalized viewer settings, keeps current password/restricted gates, and has no store/proxy/visits/edit/collaboration/Markdown features. Use `drophere_deploy_saved_version` with the observed `expectedCurrentVersionId`; deploying an older saved version performs rollback and restores the previewed viewer settings.
 
 Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 
@@ -488,6 +488,25 @@ does not create an Enterprise wildcard hostname. Use
 `drophere_list_connected_domains` and `drophere_get_connected_domain` for
 persisted status. Remove all exact children before calling
 `drophere_disconnect_domain`; disconnect never removes external DNS records.
+
+Unlimited Pro allows 5 non-retired connected roots and 20 exact custom
+hostnames per connector account. Connected children created by shared members
+count against the connector. If
+`CONNECTED_DOMAIN_LIMIT_REACHED` or `CUSTOM_HOSTNAME_LIMIT_REACHED` is
+returned, do not retry a new resource: delete an unused one or ask the user to
+contact support. Reads, refreshes, retries of already-counted resources, and
+deletion remain available at the limit.
+
+The connector may use `drophere_set_connected_domain_sharing` with the last
+observed `sharing.version` to choose `private`, `selected`, or `email_domain`.
+Selected accounts must already exist at the connector's exact non-consumer
+email domain. Email-domain mode dynamically includes verified accounts only
+when the connected root exactly matches the connector's account email domain;
+the connected-domain DNS proof is the organization-domain proof. Use selected
+sharing for other roots. Agents inherit the authenticated user's access. Members may create and
+manage only their own children/routes and route only their own artifacts.
+Connector ownership, billing, provider cleanup, and authority never transfer.
+Revocation blocks later management but does not stop existing sites.
 
 ## Key-Value Store
 
