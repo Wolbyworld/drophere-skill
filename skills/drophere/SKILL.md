@@ -479,7 +479,10 @@ the base once instead of asking for a DNS change for every hostname:
 5. Route the exact hostname with `drophere_set_link`.
 
 Existing and future exact DNS records override the wildcard and are never
-changed by Drophere. Unknown wildcard hostnames return 404. Every claimed
+changed by Drophere. Cloudflare makes wildcard custom hostnames
+Enterprise-only; on Drophere's current pay-as-you-go plan, unknown wildcard
+hostnames remain non-serving at the provider boundary before the request
+reaches Drophere. Every claimed
 child is still an exact Cloudflare custom hostname and certificate; Drophere
 does not create an Enterprise wildcard hostname. Use
 `drophere_list_connected_domains` and `drophere_get_connected_domain` for
