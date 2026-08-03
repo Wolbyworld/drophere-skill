@@ -2198,8 +2198,9 @@ same authenticated operations and return the same success and error fields as
 the REST endpoints below. For one-time wildcard setup and automatic exact
 children, use `drophere_connect_domain`, `drophere_list_connected_domains`,
 `drophere_get_connected_domain`, `drophere_refresh_connected_domain`, and
-`drophere_disconnect_domain`; pass `connectedDomain` to
-`drophere_register_domain` when creating the child.
+`drophere_disconnect_domain`. Prefer `drophere_publish_to_connected_domain`
+to register an exact child and route an existing artifact in one operation;
+the low-level `drophere_register_domain` and link tools remain available.
 
 ### Connect a domain for automatic subdomains
 
@@ -2312,7 +2313,10 @@ GET /api/v1/domain-connections
       "wildcard_verified": true,
       "dns_verified_at": "2026-07-25T06:00:00.000Z",
       "authority_valid_until": "2026-07-27T06:00:00.000Z",
-      "child_count": 2,
+      "child_count": 3,
+      "live_child_count": 1,
+      "provisioning_child_count": 1,
+      "attention_child_count": 1,
       "access_role": "owner",
       "sharing": {
         "mode": "private",
@@ -2330,6 +2334,14 @@ The list contains roots owned by the authenticated account plus active roots
 shared with it. A shared member receives `access_role: "member"`, sees only
 their own child count, and does not receive ownership tokens, DNS instructions,
 DNS readback, observed records, or the selected-member list.
+
+Child counts are explicit lifecycle classifications. `live_child_count`
+requires the exact bound hostname, active TLS, and a currently valid parent.
+`provisioning_child_count` includes only bound pending children that the
+automatic refresh worker can safely advance. `attention_child_count` includes
+everything else, including uncertain creates awaiting registration recovery,
+failed or unbound rows, deletion work, and children whose parent authority is
+not valid. It is not inferred as total minus live.
 
 ### Share a connected domain
 
@@ -2408,6 +2420,18 @@ failure records the attempt and clears the refresh claim for retry on a later
 scheduled run, but never extends the last successful lease. Edge serving and REST/MCP
 `serving_ready` both require a non-retired parent whose lease has not expired.
 
+A separate odd-minute trigger atomically selects at most 1 exact connected
+child with `FOR UPDATE SKIP LOCKED` and advances `last_checked_at` before any
+external work. This rotates a failed attempt behind other due children and
+prevents overlapping runs from selecting the same oldest row. Bound pending
+hostnames use the authenticated refresh path. Expired `provisioning` or
+`provisioning_uncertain` create leases use the protected idempotent registration
+path, which re-proves the exact provider ID/nonce/parent binding before
+persistence. Both paths retain their existing lifecycle and authority fences.
+The more expensive registration-retry path sets the conservative batch ceiling
+at 41 subrequests, below the Workers Free limit. No browser or agent polling is
+required.
+
 ### Disconnect a connected domain
 
 ```
@@ -2446,6 +2470,72 @@ Connected-domain errors use the standard `{ "error", "code" }` shape:
 | 409 | `CONNECTED_DOMAIN_OPERATION_IN_PROGRESS`, `CONNECTED_DOMAIN_REFRESH_SUPERSEDED`, `CONNECTED_DOMAIN_RETRY_REQUIRED`, `CONNECTED_DOMAIN_DISCONNECT_RETRY_REQUIRED`, `CONNECTED_DOMAIN_HAS_CHILDREN` | A fenced lifecycle operation must finish or be retried |
 | 502 | `CONNECTED_DOMAIN_DNS_ERROR` | Authoritative DNS-over-HTTPS readback failed |
 | 503 | `CONNECTED_DOMAINS_NOT_CONFIGURED` | Resolver or wildcard target configuration is missing |
+
+### Publish an artifact to a connected-domain child
+
+```
+POST /api/v1/artifact/:slug/connected-domain
+```
+
+**Auth:** Required
+
+**Body:**
+```json
+{
+  "connectedDomain": "madridhome.cc",
+  "label": "monthly-closing",
+  "location": ""
+}
+```
+
+This is the preferred idempotent operation after a root is connected. It
+validates artifact ownership and current connected-domain access, registers
+and provisions the exact child hostname, upserts the requested route, and
+reads both records back before returning. Cloudflare's exact Custom Hostname
+and certificate are internal provisioning details; the user does not visit
+their DNS provider again. Shared-domain members may publish only their own
+artifacts to children and routes they own.
+
+**Response while TLS is provisioning (202):**
+```json
+{
+  "domain": "monthly-closing.madridhome.cc",
+  "connectedDomain": "madridhome.cc",
+  "label": "monthly-closing",
+  "location": "",
+  "slug": "fair-ford",
+  "siteUrl": "https://monthly-closing.madridhome.cc/",
+  "operationState": "provisioning",
+  "servingReady": false,
+  "message": "Connected hostname is registered and routed. TLS is provisioning automatically; no DNS change is required."
+}
+```
+
+The same response is `200` with `operationState: "live"` and
+`servingReady: true` only after authoritative provider hostname and TLS state
+are active. `operationState: "provisioning"` is returned only after durable
+readback proves an exact provider ID and binding nonce in a scheduler-eligible
+pending state.
+
+If provider create may have committed but its response was lost, the route is
+saved and the API truthfully returns `202` with
+`operationState: "registration_retry"`, `automaticRetry: true`, and the
+provisioning lease timestamp in `retryAfter`. The odd-minute worker retries the
+same protected registration after that lease expires. Do not describe this
+state as TLS provisioning or live. Persisted readback reconciliation is limited
+to ambiguous provider-create responses, an active provisioning lease, or an
+already-registered idempotent child. Deterministic registration failures such
+as an exact DNS conflict are returned without changing the route. Rows that are
+neither durably bound nor safe for scheduled registration retry return
+`409 CONNECTED_DOMAIN_PUBLISH_ATTENTION_REQUIRED` with
+`operationState: "attention_required"` and `servingReady: false`.
+
+Do not report any 202 response as live. A 522 on an unregistered
+wildcard child does not mean the connected root DNS is broken: inspect
+`GET /api/v1/domain-connections/:domain`, then call this operation. Partial
+route failures return the persisted child hostname plus a `domainRegistered`
+boolean derived from durable exact-provider binding, the current operation and
+retry metadata, and `retryable: true`; retrying the same request is safe.
 
 ### Add Custom Domain
 
@@ -3024,7 +3114,7 @@ For a bad pending version, update with a corrected manifest or call `drophere_di
 | Access | `drophere_set_artifact_access`, `drophere_set_artifact_password`, `drophere_unset_artifact_password` |
 | Collaboration | `drophere_set_collaboration`, `drophere_list_comments`, `drophere_add_comment`, `drophere_update_comment`, `drophere_delete_comment` |
 | Handles/links | `drophere_set_handle`, `drophere_get_handle`, `drophere_delete_handle`, `drophere_set_link`, `drophere_get_link`, `drophere_list_links`, `drophere_delete_link` |
-| Custom domains | `drophere_register_domain`, `drophere_list_domains`, `drophere_get_domain`, `drophere_refresh_domain`, `drophere_detach_domain`, `drophere_delete_domain` |
+| Custom domains | `drophere_publish_to_connected_domain`, `drophere_register_domain`, `drophere_list_domains`, `drophere_get_domain`, `drophere_refresh_domain`, `drophere_detach_domain`, `drophere_delete_domain` |
 | Variables | `drophere_set_variable`, `drophere_list_variables`, `drophere_delete_variable` |
 | KV store | `drophere_kv_get`, `drophere_kv_set`, `drophere_kv_list`, `drophere_kv_delete` |
 

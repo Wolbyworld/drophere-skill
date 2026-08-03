@@ -474,9 +474,28 @@ the base once instead of asking for a DNS change for every hostname:
 2. Give the user the returned public ownership TXT and wildcard CNAME. The
    wildcard must be **DNS only**, not proxied.
 3. Call `drophere_refresh_connected_domain` until `ready` is `true`.
-4. Call `drophere_register_domain` with `connectedDomain: "example.com"` and
-   a one-label `domain`, such as `"docs"`.
-5. Route the exact hostname with `drophere_set_link`.
+4. Call `drophere_publish_to_connected_domain` with the existing artifact
+   `slug`, `connectedDomain: "example.com"`, and a one-label `label`, such as
+   `"docs"`. This idempotently registers the exact child, provisions TLS, and
+   routes the artifact in one operation.
+5. If it returns `operationState: "provisioning"`, report that TLS is being
+   provisioned automatically and that no DNS change is required. Report the
+   child as live only when `servingReady` is `true`.
+   If it returns `operationState: "registration_retry"`, say that the route is
+   saved but the provider create response was uncertain and Drophere will retry
+   the exact registration after `retryAfter`. Do not describe this as TLS
+   provisioning or live, and do not ask the user for another DNS change.
+   Treat `operationState: "attention_required"` as an error requiring lifecycle
+   recovery; never present it as automatic provisioning or a live site.
+
+Before telling a user that a connected child needs DNS changes, always call
+`drophere_list_connected_domains` and inspect the exact root. If the root is
+`ready: true` with TXT and wildcard verified, its DNS connection is already
+complete. A missing exact child, a 522 from the wildcard, or provider/TLS
+pending state means the child is unregistered or still provisioning internally;
+use `drophere_publish_to_connected_domain` and do not send the user back to
+Cloudflare. Use the low-level register/link tools only for lifecycle recovery
+or advanced routing.
 
 Existing and future exact DNS records override the wildcard and are never
 changed by Drophere. Cloudflare makes wildcard custom hostnames
@@ -484,7 +503,8 @@ Enterprise-only; on Drophere's current pay-as-you-go plan, unknown wildcard
 hostnames remain non-serving at the provider boundary before the request
 reaches Drophere. Every claimed
 child is still an exact Cloudflare custom hostname and certificate; Drophere
-does not create an Enterprise wildcard hostname. Use
+creates and reconciles it automatically and does not create an Enterprise
+wildcard hostname. Use
 `drophere_list_connected_domains` and `drophere_get_connected_domain` for
 persisted status. Remove all exact children before calling
 `drophere_disconnect_domain`; disconnect never removes external DNS records.
