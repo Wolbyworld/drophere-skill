@@ -3245,5 +3245,43 @@ Artifacts are served at `https://{slug}.drophere.cc/`. The edge worker handles:
 - **Auto-viewer:** If no `index.html`, renders a rich preview (image viewer, gallery, PDF viewer, code viewer, etc.)
 - **index.html:** If present, served as the entry point for the site
 - **SPA routing:** When `spaMode: true` is set in viewer metadata, unmatched paths serve `index.html` instead of 404 — enabling React, Vue, SvelteKit, and other SPA frameworks. Static assets are still served normally.
+- **Artifact icons:** Conventional root icon files are served from the artifact manifest before the Drophere brand fallback
 - **Proxy routes:** Requests to `/_proxy/*` are forwarded to upstream APIs per `.drophere/proxy.json` manifest
 - **Password protection:** Password-protected artifacts show a password form before serving any content
+
+### Artifact Favicons and App Icons
+
+To give an artifact its own browser-tab or app icon, include one or more of
+these files at the artifact root. They are available to every artifact; no paid
+plan or metadata setting is required.
+
+| Manifest path | Content type |
+|---------------|--------------|
+| `favicon.ico` | `image/x-icon` |
+| `favicon.svg` | `image/svg+xml` |
+| `apple-touch-icon.png` | `image/png` |
+| `site.webmanifest` | `application/manifest+json` |
+
+Add each icon to the create or update manifest with the exact path and content
+type, then upload and finalize it like any other artifact file. For a direct
+artifact subdomain or an artifact linked at its hostname root, use root-absolute
+links:
+
+```html
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+```
+
+For an artifact mounted at a non-root handle or custom-domain location, include
+the route prefix instead. For example, a site at `/portfolio/` should link to
+`/portfolio/favicon.svg`, or use the relative URL `favicon.svg` from that
+trailing-slash page. A root-absolute `/favicon.svg` always addresses the
+namespace root, not the artifact mounted below `/portfolio`.
+
+Browsers can discover conventional icon paths automatically when the artifact
+is mounted at the hostname root. Non-root mounts need explicit route-prefixed
+or relative links. Direct, handle, and custom-domain requests all pass through
+normal password, access, and expiry gates. A missing conventional host-root
+file falls back to Drophere's branded asset. SPA mode never uses `index.html`
+as the fallback for a missing conventional icon path.

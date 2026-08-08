@@ -92,6 +92,36 @@ Use `drophere_get_artifact` to inspect `pendingVersion.readyToFinalize` and per-
 
 Viewer metadata is optional. Defaults are `spaMode=false`, `markdownDownload=false`, no `ogImagePath`, and no title/description.
 
+### Artifact favicons
+
+When an artifact should have its own browser-tab or app icon, include the icon
+files in the artifact manifest and upload them like any other file. Use the
+conventional root paths and matching content types: `favicon.ico`
+(`image/x-icon`), `favicon.svg` (`image/svg+xml`),
+`apple-touch-icon.png` (`image/png`), and `site.webmanifest`
+(`application/manifest+json`). This works for every artifact without a paid
+plan or metadata setting.
+
+For a direct artifact subdomain or an artifact linked at its hostname root,
+recommend root-absolute HTML links:
+
+```html
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+```
+
+For an artifact mounted at a non-root handle or custom-domain location, include
+the route prefix: a site at `/portfolio/` should use
+`href="/portfolio/favicon.svg"`, or `href="favicon.svg"` from that
+trailing-slash page. Do not use root-absolute `/favicon.svg` for a non-root
+mount; it addresses the namespace root instead.
+
+Conventional root discovery works without explicit links when the artifact is
+mounted at the hostname root. Non-root mounts need route-prefixed or relative
+links. A missing conventional host-root file falls back to Drophere branding,
+and SPA mode does not substitute `index.html` for missing conventional icons.
+
 Library anchor rule: when a user asks where to find, rediscover, organize, route, or manage their published Drophere sites, link them to `https://drophere.cc/account#library`. Do not send them only to generic `/account`; `#library` is the stable human anchor for the private library. After publishing, return the exact artifact URL as the primary link and mention `https://drophere.cc/account#library` only as the place to rediscover/manage owned artifacts later.
 
 URL intent rule: if the user asks for `https://name.drophere.cc/`, `name.drophere.cc`, or any `*.drophere.cc` root URL for one site, create a persistent artifact with `slug: "name"`. Do not claim or rename a handle, do not register `name.drophere.cc` as a custom domain, and do not fall back to `handle.drophere.cc/name` unless the user approves that fallback.
