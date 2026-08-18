@@ -655,6 +655,11 @@ POST /api/v1/artifact/:slug/finalize
 publish-now default because deploying a previously saved version is an
 owner-only operation.
 
+Edit grants cannot finalize an effective `.drophere/proxy.json` whose headers
+reference owner service variables such as `${API_KEY}`. The request fails with
+**403** `PROXY_VARIABLES_FORBIDDEN`. Owner finalization and proxy manifests with
+static headers remain supported.
+
 **Response (200):**
 ```json
 {
@@ -673,13 +678,13 @@ owner-only operation.
 |--------|-------|
 | 400 | versionId is required / activate must be a boolean |
 | 401 | Authentication required |
-| 403 | Invalid or missing claim token / You do not own this artifact |
+| 403 | Invalid or missing claim token / You do not own this artifact / `PROXY_VARIABLES_FORBIDDEN` for edit-grant proxy variable use |
 | 404 | Artifact not found / Version not found |
 | 409 | versionId does not match pending version / base version changed |
 
 ### Artifact Edit Grants
 
-Owner-managed scoped tokens for collaborative publishing. `deploy` grants are write-only credentials for callers that already have a complete local source tree. `editor` grants add manifest, raw-source, and comment reads so a token-only collaborator can make bounded changes safely. Neither kind can delete the artifact, restore/rollback versions, change visibility/passwords, mutate comments, manage variables, route handles/domains, duplicate artifacts, or create/revoke grants.
+Owner-managed scoped tokens for collaborative publishing. `deploy` grants are write-only credentials for callers that already have a complete local source tree. `editor` grants add manifest, raw-source, and comment reads so a token-only collaborator can make bounded changes safely. Neither kind can delete the artifact, restore/rollback versions, change visibility/passwords, mutate comments, manage variables, reference owner service variables from proxy manifests, route handles/domains, duplicate artifacts, or create/revoke grants.
 
 The raw token is returned only once on creation. Drophere stores only a token hash.
 
