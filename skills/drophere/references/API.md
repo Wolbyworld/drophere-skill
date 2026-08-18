@@ -2097,6 +2097,11 @@ POST /api/v1/links
 | `slug` | Yes | Target artifact slug |
 | `domain` | No | Custom domain. If omitted, uses your handle |
 
+A custom domain accepts link writes only after its hostname is verified and
+serving. Creating or updating a link on a `pending`, `failed`, or otherwise
+unverified domain returns **409** `DOMAIN_NOT_ACTIVE`. Deleting a link is always
+allowed, so links are never stranded on a domain that loses verification.
+
 **Response (201):**
 ```json
 { "namespace": "my-project", "location": "docs", "slug": "bold-canvas" }
