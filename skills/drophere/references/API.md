@@ -1841,6 +1841,10 @@ GET /api/v1/artifact/:slug/comments?status=open
 
 `settings.viewer.canComment` and each thread's `capabilities.canReply` reflect the current viewer's comment policy eligibility. When `canComment` is false, `message` contains the reason to show in the viewer UI.
 
+Collaboration access tokens are bound to the artifact's current access and comment policy. Password, viewer allowlist, or collaboration policy changes invalidate issued tokens immediately. An authorized viewer can refresh the artifact to receive a new token.
+
+Viewer responses omit author email and user IDs. Owner and agent responses include stable user IDs when available, but author email addresses are masked, for example `a***@example.com`.
+
 ### Comment Actions
 
 ```
