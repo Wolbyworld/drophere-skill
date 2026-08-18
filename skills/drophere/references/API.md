@@ -1630,6 +1630,8 @@ Format: `{count}/{second|minute|hour}/ip`
 ### Security
 
 - `upstream` must use HTTPS — HTTP is rejected
+- `upstream` cannot contain embedded credentials or target loopback, private, link-local, metadata, reserved, or non-public DNS addresses
+- DNS verification fails closed; a temporary DNS failure returns `502` until the public upstream resolves again
 - `Set-Cookie` headers from upstream are stripped
 - Only `Content-Type` and `Accept` headers forwarded from client
 - Max request body: 10 MB
